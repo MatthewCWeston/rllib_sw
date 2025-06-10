@@ -1,0 +1,13 @@
+ray[rllib]
+gymnasium==1.0.0 
+dm_tree 
+fsspec 
+pandas 
+pyarrow==14.0.2 
+numpy==1.26.4 
+scipy 
+lz4 
+aiohttp_cors 
+torch
+pygame
+wandb
