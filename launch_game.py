@@ -6,18 +6,29 @@
      - a getKeyMap() function that maps key inputs to actions within the environment.
 '''
 
+import os
 import sys
 from PIL import ImageDraw
 import pygame
 import importlib.util
 import numpy as np
 import json
+import argparse
 
 env_name = sys.argv[1]
-if (len(sys.argv) > 2):
-    cfg = json.loads(sys.argv[2])
-else:
-    cfg = {}
+
+parser = argparse.ArgumentParser()
+parser.add_argument("env_name", type=str, help="Name of the environment")
+parser.add_argument("--env_cfg", type=json.loads, default={},help="JSON-formatted environment config (default: {})")
+parser.add_argument("--ckpt_path", type=str, default=None, help="Path to checkpoint file, if applicable")
+args = parser.parse_args()
+
+cfg = args.env_cfg
+agent = None
+if (args.ckpt_path is not None):
+    from classes.inference_helpers import load_checkpoint, query_model
+    agent = load_checkpoint(args.ckpt_path)
+
 
 def instantiate_env(env_name, cfg):
     spec = importlib.util.spec_from_file_location(env_name, f'./environments/{env_name}.py')
@@ -68,6 +79,8 @@ while run:
                 x = ad[action]
                 a[x[0]] = 0
     if (done == False):
+        if (args.ckpt_path is not None): # If we're running an agent
+            a = query_model(agent, o, env)
         o, r, term, trunc, _ = env.step(a)
         total_reward += r
         # Render
