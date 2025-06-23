@@ -54,6 +54,7 @@ parser.set_defaults(
 )
 parser.add_argument("--env-config", type=str, default='{}')
 parser.add_argument("--env-name", type=str)
+parser.add_argument("--no-custom-arch", action='store_true') # Don't use the attention-based encoder.
 
 args = parser.parse_args()
 
@@ -78,7 +79,11 @@ config = (
         gamma=0.99,
         lr=1e-5
     )
-    .rl_module(
+)
+# 
+if (not args.no_custom_arch):
+    print('Using custom architecture')
+    config.rl_module(
         rl_module_spec=RLModuleSpec(
             catalog_class=AttentionPPOCatalog,
             model_config={
@@ -88,7 +93,8 @@ config = (
             },
         ),
     )
-)
+else:
+    print('Using default architecture')
 # Set the stopping arguments.
 EPISODE_RETURN_MEAN_KEY = f"{ENV_RUNNER_RESULTS}/{EPISODE_RETURN_MEAN}"
 stop = {
