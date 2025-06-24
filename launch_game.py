@@ -19,7 +19,7 @@ env_name = sys.argv[1]
 
 parser = argparse.ArgumentParser()
 parser.add_argument("env_name", type=str, help="Name of the environment")
-parser.add_argument("--env_cfg", type=json.loads, default={},help="JSON-formatted environment config (default: {})")
+parser.add_argument("--env-config", type=json.loads, default={})
 parser.add_argument("--ckpt_path", type=str, default=None, help="Path to checkpoint file, if applicable")
 args = parser.parse_args()
 
