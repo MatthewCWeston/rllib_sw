@@ -1,11 +1,15 @@
 """
 This file implements a self-attention Encoder (see https://arxiv.org/abs/1909.07528) for handling variable-length Repeated observation spaces. It expects a Dict observation space with Discrete, Box, or Repeated (of Discrete or Box) subspaces.
 """
+from ray.rllib.algorithms.ppo.ppo_catalog import PPOCatalog
 from ray.rllib.core.models.torch.base import TorchModel
 from ray.rllib.core.models.base import Encoder, ENCODER_OUT
 from ray.rllib.core.models.configs import ModelConfig
+
+import gymnasium as gym
 from gymnasium.spaces import Discrete, Box
 from ray.rllib.utils.spaces.repeated import Repeated
+
 import torch
 from torch import nn
 
@@ -89,3 +93,16 @@ class AttentionEncoderConfig(ModelConfig):
 
     def output_dims(self):
         return self.output_dims
+
+class AttentionPPOCatalog(PPOCatalog):
+    """
+    A special PPO catalog producing an encoder that handles dictionaries of (potentially Repeated) action spaces in the same manner as https://arxiv.org/abs/1909.07528.
+    """
+
+    @classmethod
+    def _get_encoder_config(
+        cls,
+        observation_space: gym.Space,
+        **kwargs,
+    ):
+        return AttentionEncoderConfig(observation_space, **kwargs)

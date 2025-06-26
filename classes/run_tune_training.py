@@ -5,6 +5,7 @@ import ray
 from ray import tune
 from ray.tune import CLIReporter
 from ray.tune.result import TRAINING_ITERATION
+from ray.air.integrations.wandb import WandbLoggerCallback
 from ray.rllib.utils.metrics import (
     ENV_RUNNER_RESULTS,
     EPISODE_RETURN_MEAN,
@@ -24,11 +25,7 @@ def get_tune_callbacks(args: argparse.Namespace):
 def run_tune_training(config: "AlgorithmConfig",args: Optional[argparse.Namespace] = None,*,stop: Optional[Dict] = None, scheduler=None):
     # Initialize Ray.
     ray.init(num_cpus=args.num_cpus or None, local_mode=args.local_mode, ignore_reinit_error=True,)
-    # Set the framework.
-    config.framework(args.framework)
     config.learners(num_gpus_per_learner=1)
-    if args.num_env_runners is not None:
-        config.env_runners(num_env_runners=args.num_env_runners)
     # Auto-configure a CLIReporter (to log the results to the console).
     # Use better ProgressReporter for multi-agent cases: List individual policy rewards.
     progress_reporter = CLIReporter(
