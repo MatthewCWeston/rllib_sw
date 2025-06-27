@@ -49,6 +49,7 @@ parser.add_argument("--env-config", type=json.loads, default={})
 parser.add_argument("--env-name", type=str)
 parser.add_argument("--no-custom-arch", action='store_true') # Don't use the attention-based encoder.
 parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivation
+parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 
 args = parser.parse_args()
 
@@ -71,7 +72,7 @@ config = (
     .training(
         train_batch_size=32768,
         minibatch_size=4096,
-        gamma=0.99,
+        gamma=0.995, #0.99,
         lr=1e-5,
         vf_clip_param=40.0
     )
@@ -79,13 +80,14 @@ config = (
 # Architecture
 if (not args.no_custom_arch):
     print('Using custom architecture')
+    print(f"Share layers = {args.share_layers}")
     specs = {
         DEFAULT_MODULE_ID: RLModuleSpec(
             catalog_class=AttentionPPOCatalog,
             model_config={
                 "attention_emb_dim": 128,
                 "head_fcnet_hiddens": (256, 256),
-                "vf_share_layers": False, # See if True works better
+                "vf_share_layers": args.share_layers, # See if True works better
             },
         )
     }

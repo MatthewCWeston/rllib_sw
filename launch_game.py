@@ -18,15 +18,15 @@ import argparse
 env_name = sys.argv[1]
 
 parser = argparse.ArgumentParser()
-parser.add_argument("env_name", type=str, help="Name of the environment")
+parser.add_argument("env-name", type=str, help="Name of the environment")
 parser.add_argument("--env-config", type=json.loads, default={})
-parser.add_argument("--ckpt_path", type=str, default=None, help="Path to checkpoint file, if applicable")
+parser.add_argument("--ckpt-path", type=str, default=None, help="Path to checkpoint file, if applicable")
 args = parser.parse_args()
 
-cfg = args.env_cfg
+cfg = args.env_config
 agent = None
 if (args.ckpt_path is not None):
-    from classes.inference_helpers import load_checkpoint, query_model
+    from classes.inference_helpers import load_checkpoint, query_model, query_value
     agent = load_checkpoint(args.ckpt_path)
 
 
@@ -47,11 +47,21 @@ clock = pygame.time.Clock()
 
 def im_postproc(im, a, r):
   d = ImageDraw.Draw(im)
-  d.text((10, im.height-40), f"Action: {a}", (255, 255, 255))
-  d.text((10, im.height-20), f"Reward: {r}", (255, 255, 255))
+  if (paused):
+    d.text((10, im.height-100), "PAUSED", (255, 255, 0))
+  d.text((10, im.height-80), f"Action: {a}", (255, 255, 255))
+  # Time is rendered here by the environment itself.
+  d.text((10, im.height-40), f"Reward: {r}", (255, 255, 255))
+  if (args.ckpt_path is not None):
+    v = query_value(agent, o, env)
+    d.text((10, im.height-20), f"Agent Value: {v:.2f}", (255, 255, 255))
   return im
 
 run = True
+paused = False # Is the simulation paused?
+agent_control = (args.ckpt_path is not None)
+pause_key, override_key = pygame.K_p, pygame.K_o
+
 term = trunc = done = False
 action = "default"
 total_reward = 0
@@ -68,7 +78,12 @@ while run:
             run = False
         elif event.type == pygame.KEYDOWN:
             action = event.key
-            if (action in ad):
+            if (action in [pause_key, override_key]):
+                if (action==pause_key):
+                    paused = (not paused)
+                elif (action==override_key):
+                    agent_control = (not agent_control) and (args.ckpt_path is not None)
+            elif (action in ad): # Is this an action within our environment?
                 x = ad[action]
                 a[x[0]] = x[1]
                 if (x[2]==True):
@@ -78,8 +93,8 @@ while run:
             if (action in ad): # Reset
                 x = ad[action]
                 a[x[0]] = 0
-    if (done == False):
-        if (args.ckpt_path is not None): # If we're running an agent
+    if ((done or paused) == False):
+        if (agent_control): # If we're running an agent
             a = query_model(agent, o, env)
         o, r, term, trunc, _ = env.step(a)
         total_reward += r
@@ -90,10 +105,9 @@ while run:
         pygame_surface = pygame.image.fromstring(raw_str, (size, size), 'RGBA')
         window.blit(pygame_surface, (0, 0))
         pygame.display.flip()
-    else:
-        if (action == pygame.K_r): # reset on r if game is over
-            o, _ = env.reset()
-            term=trunc=False
-            action = "default"
-            total_reward = 0
+    if (action == pygame.K_r): # reset on r if game is over
+        o, _ = env.reset()
+        term=trunc=False
+        action = "default"
+        total_reward = 0
     done = term or trunc

@@ -5,6 +5,7 @@ from ray.rllib.algorithms.ppo.ppo_catalog import PPOCatalog
 from ray.rllib.core.models.torch.base import TorchModel
 from ray.rllib.core.models.base import Encoder, ENCODER_OUT
 from ray.rllib.core.models.configs import ModelConfig
+from ray.rllib.core.columns import Columns
 
 import gymnasium as gym
 from gymnasium.spaces import Discrete, Box
@@ -42,8 +43,8 @@ class AttentionEncoder(TorchModel, Encoder):
         self.embs = nn.ModuleDict(embs)
 
     def _forward(self, input_dict, **kwargs):
-        N = input_dict["obs"].shape[0]
-        vec = input_dict["obs"]
+        N = input_dict[Columns.OBS].shape[0]
+        vec = input_dict[Columns.OBS]
         # The original space we mapped from.
         obs_s = self.observation_space
         obs = ObsVectorizationWrapper.restore_obs_batch(vec, obs_s)

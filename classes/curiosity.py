@@ -21,7 +21,7 @@ def add_curiosity(config, specs):
     '''
     config.training(
       learner_config_dict={
-          "intrinsic_reward_coeff": 0.05, # Weight for curiosity term
+          "intrinsic_reward_coeff": 1000.0, #0.05, # Weight for curiosity term
           "forward_loss_weight": 0.2, # Share of curiosity term contributed by forward loss (vs inverse dynamics loss)
       },
       learner_class=PPOTorchLearnerWithCuriosity,

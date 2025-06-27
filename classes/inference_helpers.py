@@ -20,9 +20,9 @@ def load_checkpoint(ckpt_path):
 def query_model(agent, obs, env):
     # Model expects a vector instead of a dictionary
     obs = ObsVectorizationWrapper.serialize_obs(obs, env.observation_space)
+    input_dict = {Columns.OBS: torch.tensor(obs).unsqueeze(0)}
     #
     action_shape = tuple(env.action_space.nvec)
-    input_dict = {Columns.OBS: torch.tensor(obs).unsqueeze(0)}
     module_out = agent.forward_inference(input_dict)
     a = module_out['action_dist_inputs'][0]
     p = 0
@@ -31,3 +31,10 @@ def query_model(agent, obs, env):
         actions.append(a[p:p+ax].argmax())
         p += ax
     return actions
+    
+def query_value(agent, obs, env):
+    obs = ObsVectorizationWrapper.serialize_obs(obs, env.observation_space)
+    input_dict = {Columns.OBS: torch.tensor(obs).unsqueeze(0)}
+    #
+    module_out = agent.compute_values(input_dict)
+    return module_out.item()
