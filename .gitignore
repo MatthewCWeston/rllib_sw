@@ -1,2 +1,4 @@
 **/__pycache__/
 /checkpoints
+/tmp
+generate_rollouts.py

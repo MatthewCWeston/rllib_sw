@@ -1,6 +1,8 @@
 import sys
 import importlib.util
 import json
+import torch
+import functools
 
 import ray
 from ray.rllib.models import ModelCatalog
@@ -43,13 +45,15 @@ def get_env_class(env_name):
 parser = add_rllib_example_script_args(default_reward=40, default_iters=50)
 parser.set_defaults(
     enable_new_api_stack=True,
-    num_env_runners=0
+    num_env_runners=0,
 )
 parser.add_argument("--env-config", type=json.loads, default={})
 parser.add_argument("--env-name", type=str)
 parser.add_argument("--no-custom-arch", action='store_true') # Don't use the attention-based encoder.
 parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivation
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
+parser.add_argument("--lr", type=float, default=1e-6) # 1e6 to 1e9
+parser.add_argument("--lr-final", type=float, default=1e-6) # 1e6 to 1e9
 
 args = parser.parse_args()
 
@@ -66,15 +70,15 @@ config = (
         env_config=args.env_config,
     )
     .env_runners(
-        num_env_runners=args.num_env_runners
+        num_env_runners=args.num_env_runners,
     )
     .framework("torch")
     .training(
-        train_batch_size=32768,
+        train_batch_size=32768, # * 2**2
         minibatch_size=4096,
-        gamma=0.995, #0.99,
-        lr=1e-5,
-        vf_clip_param=40.0
+        gamma=0.99, #0.999, #
+        lr=args.lr,
+        #vf_clip_param=40.0
     )
 )
 # Architecture
@@ -87,7 +91,7 @@ if (not args.no_custom_arch):
             model_config={
                 "attention_emb_dim": 128,
                 "head_fcnet_hiddens": (256, 256),
-                "vf_share_layers": args.share_layers, # See if True works better
+                "vf_share_layers": args.share_layers,
             },
         )
     }
@@ -102,6 +106,19 @@ else:
 if (args.curiosity):
     print('Using curiosity')
     add_curiosity(config, specs)
+if (args.lr_final != args.lr):
+    lr_factor = (args.lr_final/args.lr)**(1/args.stop_iters) # divide by lr_final_scale over all epochs.
+    print(f"lr factor = {lr_factor}")
+    config.experimental(
+        # Add two learning rate schedulers to be applied in sequence.
+        _torch_lr_scheduler_classes=[
+            functools.partial(
+                torch.optim.lr_scheduler.ConstantLR,
+                factor=lr_factor,
+                total_iters=args.stop_iters,
+            )
+        ]
+    )
 # Add spec
 config.rl_module(
     rl_module_spec=MultiRLModuleSpec(

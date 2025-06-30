@@ -47,7 +47,7 @@ clock = pygame.time.Clock()
 
 def im_postproc(im, a, r):
   d = ImageDraw.Draw(im)
-  if (paused):
+  if (to_pause):
     d.text((10, im.height-100), "PAUSED", (255, 255, 0))
   d.text((10, im.height-80), f"Action: {a}", (255, 255, 255))
   # Time is rendered here by the environment itself.
@@ -58,7 +58,7 @@ def im_postproc(im, a, r):
   return im
 
 run = True
-paused = False # Is the simulation paused?
+paused = to_pause = False # Is the simulation paused?
 agent_control = (args.ckpt_path is not None)
 pause_key, override_key = pygame.K_p, pygame.K_o
 
@@ -80,7 +80,7 @@ while run:
             action = event.key
             if (action in [pause_key, override_key]):
                 if (action==pause_key):
-                    paused = (not paused)
+                    to_pause = True
                 elif (action==override_key):
                     agent_control = (not agent_control) and (args.ckpt_path is not None)
             elif (action in ad): # Is this an action within our environment?
@@ -105,6 +105,9 @@ while run:
         pygame_surface = pygame.image.fromstring(raw_str, (size, size), 'RGBA')
         window.blit(pygame_surface, (0, 0))
         pygame.display.flip()
+    if (to_pause):
+        paused = (not paused)
+        to_pause = False
     if (action == pygame.K_r): # reset on r if game is over
         o, _ = env.reset()
         term=trunc=False
