@@ -27,8 +27,9 @@ class AttentionEncoder(TorchModel, Encoder):
         self.observation_space = config.observation_space.original
         self.emb_dim = config.emb_dim
         # Use an attention layer to reduce observations to a fixed length
-        self.mha = nn.MultiheadAttention(self.emb_dim, 4, batch_first=True)
-        self.residual = nn.Linear(self.emb_dim, self.emb_dim)
+        '''self.mha = nn.MultiheadAttention(self.emb_dim, 4, batch_first=True)
+        self.residual = nn.Linear(self.emb_dim, self.emb_dim)'''
+        self.enc_layer_1 = nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=4, batch_first=True) # Can just run a bunch of these in sequence, they are self-contained.
         # We expect a dict of Boxes, Discretes, or Repeateds composed of same.
         embs = {}
         for n, s in self.observation_space.spaces.items():
@@ -67,8 +68,11 @@ class AttentionEncoder(TorchModel, Encoder):
         x = torch.concatenate(embeddings, dim=1)  # batch_size, seq_len, unit_size
         mask = torch.concatenate(masks, dim=1)  # batch_size, seq_len
         # Attention
-        x_attn, _ = self.mha(x, x, x, key_padding_mask=mask, need_weights=False)
+        '''x_attn, _ = self.mha(x, x, x, key_padding_mask=mask, need_weights=False)
         x = self.residual(x_attn) + x
+        '''
+        x = self.enc_layer_1(x, src_key_padding_mask=mask)
+        x = self.enc_layer_1(x, src_key_padding_mask=mask)
         # Masked mean-pooling.
         mask = mask.unsqueeze(dim=2)
         x = x * mask  # Mask x to exclude nonexistent entries from mean pool op

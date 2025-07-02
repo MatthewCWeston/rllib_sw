@@ -52,8 +52,9 @@ parser.add_argument("--env-name", type=str)
 parser.add_argument("--no-custom-arch", action='store_true') # Don't use the attention-based encoder.
 parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivation
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
-parser.add_argument("--lr", type=float, default=1e-6) # 1e6 to 1e9
-parser.add_argument("--lr-final", type=float, default=1e-6) # 1e6 to 1e9
+parser.add_argument("--lr", type=float, default=1e-6) 
+parser.add_argument("--lr-final", type=float, default=1e-6) 
+parser.add_argument("--attn-dim", type=float, default=16) # Encoder dimensionality
 
 args = parser.parse_args()
 
@@ -76,9 +77,9 @@ config = (
     .training(
         train_batch_size=32768, # * 2**2
         minibatch_size=4096,
-        gamma=0.99, #0.999, #
+        gamma=0.999, #0.999, #
         lr=args.lr,
-        #vf_clip_param=40.0
+        vf_clip_param=float('inf'), #40.0,
     )
 )
 # Architecture
@@ -89,8 +90,8 @@ if (not args.no_custom_arch):
         DEFAULT_MODULE_ID: RLModuleSpec(
             catalog_class=AttentionPPOCatalog,
             model_config={
-                "attention_emb_dim": 128,
-                "head_fcnet_hiddens": (256, 256),
+                "attention_emb_dim": args.attn_dim,
+                "head_fcnet_hiddens": (256,),#(256, 256),
                 "vf_share_layers": args.share_layers,
             },
         )
