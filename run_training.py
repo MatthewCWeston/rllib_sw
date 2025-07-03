@@ -29,7 +29,8 @@ from classes.repeated_wrapper import ObsVectorizationWrapper
 from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.curiosity import add_curiosity
-
+#from classes.ng_critic_ppo import NGPPOLearner
+from classes.batched_critic_ppo import BatchedCriticPPOLearner
 
 
 # Get environment class 
@@ -54,7 +55,10 @@ parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivati
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 parser.add_argument("--lr", type=float, default=1e-6) 
 parser.add_argument("--lr-final", type=float, default=1e-6) 
-parser.add_argument("--attn-dim", type=float, default=16) # Encoder dimensionality
+parser.add_argument("--attn-dim", type=int, default=16) # Encoder dimensionality
+parser.add_argument("--batch-size", type=int, default=32768)
+parser.add_argument("--minibatch-size", type=int, default=4096)
+parser.add_argument("--critic-batch-size", type=int, default=32768)
 
 args = parser.parse_args()
 
@@ -75,11 +79,14 @@ config = (
     )
     .framework("torch")
     .training(
-        train_batch_size=32768, # * 2**2
-        minibatch_size=4096,
-        gamma=0.999, #0.999, #
+        train_batch_size=args.batch_size,
+        minibatch_size=args.minibatch_size,
+        gamma=0.999,
         lr=args.lr,
-        vf_clip_param=float('inf'), #40.0,
+        vf_clip_param=float('inf'),
+        #learner_class=NGPPOLearner, # Prevent OOM from computing grad on advantages and value targets (which I don't think ever gets used)
+        learner_class=BatchedCriticPPOLearner,
+        learner_config_dict={'critic_batch_size': args.critic_batch_size}, # Pass batch size here
     )
 )
 # Architecture
