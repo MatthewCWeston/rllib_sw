@@ -39,7 +39,7 @@ class SW_Missle():
         return np.array([self.pos[0], self.pos[1], self.vel[0], self.vel[1], self.life/self.maxLife])
 
 # The agent must fly over several goal positions
-class SW_MultiShoot_Env(gym.Env):
+class SW_MultiShoot_Env_Mod(gym.Env):
     def __init__(self, env_config={}):
         self.action_space = MultiDiscrete([2,3,2]) # nop/thrust, nop/left/right, npo/shoot
         # Observation spaces; fixed and variable
