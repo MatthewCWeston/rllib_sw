@@ -1,5 +1,6 @@
 import os
 import torch
+from torch.distributions import Categorical
 
 from ray.rllib.core import DEFAULT_MODULE_ID
 from ray.rllib.core.rl_module.rl_module import RLModule
@@ -28,7 +29,10 @@ def query_model(agent, obs, env):
     p = 0
     actions = []
     for ax in action_shape:
-        actions.append(a[p:p+ax].argmax())
+        a_logits = a[p:p+ax]
+        probs = torch.nn.Softmax()(a_logits)
+        action = Categorical(probs).sample()
+        actions.append(action.item())
         p += ax
     return actions
     

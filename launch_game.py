@@ -27,7 +27,8 @@ cfg = args.env_config
 agent = None
 if (args.ckpt_path is not None):
     from classes.inference_helpers import load_checkpoint, query_model, query_value
-    agent = load_checkpoint(args.ckpt_path)
+    ckpt_path = os.path.abspath(args.ckpt_path)
+    agent = load_checkpoint(ckpt_path)
 
 
 def instantiate_env(env_name, cfg):
@@ -37,9 +38,14 @@ def instantiate_env(env_name, cfg):
     agent_class = getattr(module, env_name)
     return agent_class(cfg)
 env = instantiate_env(env_name, cfg)
+ad = env.get_keymap()
+ma_env = hasattr(env, 'agents')
+if (ma_env): # Handle envs in the multi-agent format
+    agent_name = env.agents[0]
+    ad = ad[agent_name]
 o, _ = env.reset()
 size = env.size
-ad = env.get_keymap()
+
 
 pygame.init()
 window = pygame.display.set_mode((size, size))
@@ -65,7 +71,10 @@ pause_key, override_key = pygame.K_p, pygame.K_o
 term = trunc = done = False
 action = "default"
 total_reward = 0
-a = np.zeros_like(env.action_space.nvec)
+if ma_env:
+    a = np.zeros_like(env.action_space[agent_name].nvec)
+else:
+    a = np.zeros_like(env.action_space.nvec)
 reset_acts = []
 while run:
     clock.tick(20)
@@ -96,7 +105,12 @@ while run:
     if ((done or paused) == False):
         if (agent_control): # If we're running an agent
             a = query_model(agent, o, env)
-        o, r, term, trunc, _ = env.step(a)
+        if ma_env:
+            o, r, term, trunc, _ = env.step({agent_name: a})
+            o, r = o[agent_name], r[agent_name]
+            term, trunc = term['__all__'], trunc['__all__']
+        else:
+            o, r, term, trunc, _ = env.step(a)
         total_reward += r
         # Render
         render_output = env.render()
