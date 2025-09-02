@@ -1,10 +1,11 @@
 import gymnasium as gym
 from gymnasium.spaces import MultiDiscrete, Box, Dict
-from ray.rllib.utils.spaces.repeated import Repeated
 from collections import OrderedDict
 import numpy as np
 from PIL import Image, ImageDraw
 import pygame
+
+from classes.repeated_space import RepeatedCustom
 
 # Add circle wrap; add variable time setting
 def wrap(p):
@@ -47,13 +48,13 @@ class SW_MultiShoot_Env(gym.Env):
         self.num_missiles = 5
         general_space = Box(-1,1,shape=(7,)) # [posX, posY, velX, velY, angX, angY, ammo]
         goal_space = Box(-1,1,shape=(2,)) # x, y in range -1, 1
-        goal_space = Repeated(goal_space, self.num_goals)
+        self.goal_space = RepeatedCustom(goal_space, self.num_goals)
         missile_space = Box(-1,1,shape=(5,)) # x, y, vx, vy, life in range -1, 1
-        missile_space = Repeated(missile_space, self.num_missiles)
+        self.missile_space = RepeatedCustom(missile_space, self.num_missiles)
         self.observation_space = Dict({
             "general": general_space,
-            "goals": goal_space,
-            "missiles": missile_space
+            "goals": self.goal_space,
+            "missiles": self.missile_space
         })
         self.acc = 0.0005 # Rate of player acceleration
         self.missileVel = 0.02 # Initial missile velocity
@@ -68,13 +69,14 @@ class SW_MultiShoot_Env(gym.Env):
         self.gConst = .0001
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
+        
     def get_obs(self):
         ammo_stock = self.stored_missiles / self.num_missiles
         supplemental = np.array([ammo_stock])
         return OrderedDict([
             ("general", np.concatenate([self.pos, self.vel, self.angUV, supplemental], dtype=np.float32)),
-            ("goals", self.goals),
-            ("missiles", [m.get_obs() for m in self.missiles])
+            ("goals", self.goal_space.encode_obs(self.goals)),
+            ("missiles", self.missile_space.encode_obs([m.get_obs() for m in self.missiles]))
           ])
     def get_keymap(self): # Set multidiscrete 
         return {pygame.K_UP: (0,1,False), # Action, Value, hold_disallowed (qol)
@@ -84,7 +86,7 @@ class SW_MultiShoot_Env(gym.Env):
     def updateAngUV(self):
         a = self.ang*np.pi/180
         self.angUV = np.array([np.cos(a), -np.sin(a)])
-    def reset(self, seed=0, options={}):
+    def reset(self, seed=None, options={}):
         self.pos = np.array([-0.75, -0.75])
         self.vel = np.zeros_like(self.pos)
         self.ang = 30.
@@ -129,10 +131,10 @@ class SW_MultiShoot_Env(gym.Env):
                 del self.missiles[i]
             if (hp):
                 self.terminated = True
-                reward -= 10
+                reward -= 1
             if (hg != -1):
                 del self.goals[hg]
-                reward += 10
+                reward += 1
         # Update
         self.pos += self.vel * self.speed
         self.vel = np.clip(self.vel, -1.0, 1.0)
@@ -142,11 +144,12 @@ class SW_MultiShoot_Env(gym.Env):
         # Reward is +10 for hitting a target, -10 for collidijng with the star or a missile.
         if (np.linalg.norm(self.pos, 2) < self.pSize + self.sSize):
             self.terminated = True;
-            reward -= 10
-        '''elif (len(self.missiles) == 0 and self.stored_missiles==0):
-            self.terminated = True # End game when no missiles stored or in flight'''
-        if (self.terminated==False):
-            self.terminated=(len(self.goals)==0)
+            reward -= 1
+        elif (len(self.missiles) == 0 and self.stored_missiles==0):
+            self.terminated = True # End game when no missiles stored or in flight
+        if (len(self.goals)==0):
+            self.terminated=True
+            reward += 5
         truncated = (self.time >= self.maxTime)
         return self.get_obs(), reward, self.terminated, truncated, {}
     def render(self): # Display the environment state

@@ -2,25 +2,21 @@ import os
 import torch
 from torch.distributions import Categorical
 
-from ray.rllib.core import DEFAULT_MODULE_ID
 from ray.rllib.core.rl_module.rl_module import RLModule
 from ray.rllib.core.columns import Columns
 
-from classes.repeated_wrapper import ObsVectorizationWrapper
-
-def load_checkpoint(ckpt_path):
+def load_checkpoint(ckpt_path, module_id):
     ckpt = os.path.join(
         ckpt_path,
         "learner_group",
         "learner",
         "rl_module",
-        DEFAULT_MODULE_ID,
+        module_id,
     )
     return RLModule.from_checkpoint(ckpt)
 
 def query_model(agent, obs, env):
     # Model expects a vector instead of a dictionary
-    obs = ObsVectorizationWrapper.serialize_obs(obs, env.observation_space)
     input_dict = {Columns.OBS: torch.tensor(obs).unsqueeze(0)}
     #
     action_shape = tuple(env.action_space.nvec)
@@ -37,7 +33,6 @@ def query_model(agent, obs, env):
     return actions
     
 def query_value(agent, obs, env):
-    obs = ObsVectorizationWrapper.serialize_obs(obs, env.observation_space)
     input_dict = {Columns.OBS: torch.tensor(obs).unsqueeze(0)}
     #
     module_out = agent.compute_values(input_dict)

@@ -9,12 +9,10 @@ from ray.rllib.core.columns import Columns
 
 import gymnasium as gym
 from gymnasium.spaces import Discrete, Box
-from ray.rllib.utils.spaces.repeated import Repeated
+from classes.repeated_space import RepeatedCustom
 
 import torch
 from torch import nn
-
-from classes.repeated_wrapper import ObsVectorizationWrapper
 
 
 class AttentionEncoder(TorchModel, Encoder):
@@ -23,44 +21,52 @@ class AttentionEncoder(TorchModel, Encoder):
     """
 
     def __init__(self, config):
-        super().__init__(config)
-        self.observation_space = config.observation_space.original
-        self.emb_dim = config.emb_dim
-        # Use an attention layer to reduce observations to a fixed length
-        '''self.mha = nn.MultiheadAttention(self.emb_dim, 4, batch_first=True)
-        self.residual = nn.Linear(self.emb_dim, self.emb_dim)'''
-        self.enc_layer_1 = nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=4, batch_first=True) # Can just run a bunch of these in sequence, they are self-contained.
-        # We expect a dict of Boxes, Discretes, or Repeateds composed of same.
-        embs = {}
-        for n, s in self.observation_space.spaces.items():
-            if type(s) is Repeated:
-                s = s.child_space  # embed layer applies to child space
-            if type(s) is Box:
-                embs[n] = nn.Linear(s.shape[0], self.emb_dim)
-            elif type(s) is Discrete:
-                embs[n] = nn.Embedding(s.n, self.emb_dim)
-            else:
-                raise Exception("Unsupported observation subspace")
-        self.embs = nn.ModuleDict(embs)
+        try:
+            super().__init__(config)
+            self.observation_space = config.observation_space
+            self.emb_dim = config.emb_dim
+            # Use an attention layer to reduce observations to a fixed length
+            '''self.mha = nn.MultiheadAttention(self.emb_dim, 4, batch_first=True)
+            self.residual = nn.Linear(self.emb_dim, self.emb_dim)'''
+            self.enc_layer_1 = nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=4, batch_first=True) # Can just run a bunch of these in sequence, they are self-contained.
+            # Set up embedding layers for each element in our observation
+            embs = {}
+            for n, s in self.observation_space.spaces.items():
+                if type(s) is RepeatedCustom:
+                    s = s.child_space  # embed layer applies to child space
+                if type(s) is Box:
+                    embs[n] = nn.Linear(s.shape[0], self.emb_dim)
+                elif type(s) is Discrete:
+                    embs[n] = nn.Embedding(s.n, self.emb_dim)
+                else:
+                    raise Exception("Unsupported observation subspace")
+            self.embs = nn.ModuleDict(embs)
+        except Exception as e:
+            print("Exception when building AttentionEncoder:")
+            print(e)
+            raise e
 
     def _forward(self, input_dict, **kwargs):
-        N = input_dict[Columns.OBS].shape[0]
-        vec = input_dict[Columns.OBS]
+        obs = input_dict[Columns.OBS]
         # The original space we mapped from.
         obs_s = self.observation_space
-        obs = ObsVectorizationWrapper.restore_obs_batch(vec, obs_s)
         embeddings = []
         masks = []
         for s in sorted(obs.keys()):
             v = obs[s]
-            if type(obs_s[s]) is Repeated:
-                mask = v[1]
-                v = torch.stack(v[0]).permute(1, 0, 2)  # seq_len, batch_size, unit_size
-            elif type(obs_s[s]) in [Box, Discrete]:
-                mask = torch.ones((N, 1)).to(
+            v_s = obs_s[s]
+            if type(v_s) is RepeatedCustom:
+                v, mask = v_s.decode_obs(v)
+                max_len = int(mask.sum(dim=1).max().item())
+                if (max_len==0):    # Skip repeated spaces with no items
+                    continue
+                v = v[:,:max_len,:] # Improve efficiency for 'sparse' repeated spaces.
+                mask = mask[:,:max_len]
+            elif type(v_s) in [Box, Discrete]:
+                mask = torch.ones((v.shape[0], 1)).to(
                     v.device
-                )  # Fixed elements are always there
-                v = v.unsqueeze(1)
+                ) # Fixed elements are always there
+                v = v.unsqueeze(1) # Add sequence length dimension after batch
             embedded = self.embs[s](v)
             embeddings.append(embedded)
             masks.append(mask)

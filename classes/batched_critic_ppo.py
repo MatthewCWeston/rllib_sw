@@ -96,6 +96,17 @@ class BatchedCriticPPOLearner(PPOTorchLearner):
                   gamma=self.config.gamma, lambda_=self.config.lambda_, batch_size=self.config.learner_config_dict["critic_batch_size"]
               )
           )
+          
+def batch_dict(m_in, s, mb_size):
+    ''' Take a dictionary, start position, and batch size, and return a batch. '''
+    to_return = {}
+    # debug
+    for k,v in m_in.items():
+      if (type(v) is dict):
+        to_return[k] = batch_dict(v, s, mb_size)
+      else:
+        to_return[k] = m_in[k][s:s+mb_size]
+    return to_return
 
 class BatchedGeneralAdvantageEstimation(GeneralAdvantageEstimation):
     """Learner ConnectorV2 piece computing GAE advantages and value targets on episodes.
@@ -133,12 +144,8 @@ class BatchedGeneralAdvantageEstimation(GeneralAdvantageEstimation):
               if mid in batch and isinstance(module, ValueFunctionAPI):
                   values = []
                   m_in = batch[mid]
-                  b_size = len(m_in[Columns.OBS])
-                  for s in range(0, b_size, self.batch_size):
-                    v_mb = {}
-                    for k,v in m_in.items():
-                      assert (len(v)==b_size)
-                      v_mb[k] = m_in[k][s:s+self.batch_size]
+                  for s in range(0, len(m_in[Columns.REWARDS]), self.batch_size):
+                    v_mb = batch_dict(m_in, s, self.batch_size)
                     values.append(module.compute_values(v_mb))
                   values = torch.hstack(values)
                   return values

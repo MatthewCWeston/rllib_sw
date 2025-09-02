@@ -12,6 +12,7 @@ from ray.rllib.core import DEFAULT_MODULE_ID
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.core.rl_module.default_model_config import DefaultModelConfig
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.tune.registry import register_env
 
 from ray.rllib.utils.test_utils import (
@@ -25,7 +26,6 @@ from ray.rllib.utils.metrics import (
     NUM_ENV_STEPS_SAMPLED_LIFETIME,
 )
 
-from classes.repeated_wrapper import ObsVectorizationWrapper
 from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.curiosity import add_curiosity
@@ -68,7 +68,7 @@ args = parser.parse_args()
 
 env_name = args.env_name
 target_env = get_env_class(env_name)
-register_env("env", lambda cfg: ObsVectorizationWrapper(target_env(cfg)))
+register_env("env", lambda cfg: target_env(cfg))
 
 # Configure run
 
@@ -92,13 +92,33 @@ config = (
         learner_config_dict={'critic_batch_size': args.critic_batch_size}, # Pass batch size here
     )
 )
+# Handle envs in MA format
+env = target_env(args.env_config) # sample
+ma_env = isinstance(env, MultiAgentEnv)
+if (ma_env):
+    agent_id = env.agents[0]
+    module_id = 'my_policy'
+    obs_space = env.observation_spaces[agent_id]
+    act_space = env.action_spaces[agent_id]
+    config.multi_agent(
+      policies=[module_id],
+      policy_mapping_fn=(lambda agent_id, episode, **kwargs: module_id),
+      policies_to_train=[module_id],
+    )
+else:
+    module_id = DEFAULT_MODULE_ID
+    obs_space = env.observation_space
+    act_space = env.action_space
+
 # Architecture
 if (not args.no_custom_arch):
     print('Using custom architecture')
     print(f"Share layers = {args.share_layers}")
     specs = {
-        DEFAULT_MODULE_ID: RLModuleSpec(
+        module_id: RLModuleSpec(
             catalog_class=AttentionPPOCatalog,
+            observation_space=obs_space,
+            action_space=act_space,
             model_config={
                 "attention_emb_dim": args.attn_dim,
                 "head_fcnet_hiddens": tuple(args.fcnet),
@@ -109,8 +129,10 @@ if (not args.no_custom_arch):
 else:
     print('Using default architecture')
     specs = {
-        DEFAULT_MODULE_ID: RLModuleSpec(
-            model_config=DefaultModelConfig()
+        module_id: RLModuleSpec(
+            observation_space=obs_space,
+            action_space=act_space,
+            model_config=DefaultModelConfig(),
         )
     }
 # Curiosity
@@ -148,7 +170,28 @@ stop = {
 # Load policy if applicable
 if (args.restore_checkpoint):
     print(f"Restoring checkpoint: {args.restore_checkpoint}")
-    assignRestoreCallback(args.restore_checkpoint, config)
+    assignRestoreCallback(args.restore_checkpoint, config, module_id)
+
+''' 
+algo = config.build_algo()
+
+from ray.rllib.utils.metrics import (
+    ENV_RUNNER_RESULTS,
+    EPISODE_RETURN_MEAN,
+    EVALUATION_RESULTS,
+)
+import numpy as np
+
+num_iters = args.stop_iters
+
+for i in range(num_iters):
+  results = algo.train()
+  if ENV_RUNNER_RESULTS in results:
+      mean_return = results[ENV_RUNNER_RESULTS].get(
+          EPISODE_RETURN_MEAN, np.nan
+      )
+      print(f"iter={i} R={mean_return}") 
+'''
 
 # Run the experiment.
-run_tune_training(config,args,stop=stop)
+run_tune_training(config,args,stop=stop) #'''

@@ -1,9 +1,12 @@
 import gymnasium as gym
-from gymnasium.spaces import MultiDiscrete, Box, Dict
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from ray.rllib.utils.spaces.repeated import Repeated
+from gymnasium.spaces import MultiDiscrete, Box, Dict
 import numpy as np
 from PIL import Image, ImageDraw
 import pygame
+
+from classes.repeated_space import RepeatedCustom
 
 from environments.SpaceWar_constants import *
 from environments.SpaceWar_objects import Missile, Ship
@@ -23,21 +26,23 @@ class Dummy_Ship(Ship):
         # pos, vel, angle unit vector, ammo remaining
         return np.concatenate([self.pos, np.zeros((Ship.REPR_SIZE-2,))])
 
-class SW_1v1_env_singleplayer(gym.Env):
+class SW_1v1_env_singleplayer(MultiAgentEnv):
     def __init__(self, env_config={}):
+        super().__init__()
+        self.agents = self.possible_agents = self.possible_agents = [0]
         # nop/thrust, nop/left/right, npo/shoot
-        self.action_space = {i: MultiDiscrete([2,3,2]) for i in range(1)}
+        self.action_spaces = {i: MultiDiscrete([2,3,2]) for i in range(1)}
         # Observation spaces; fixed and variable
-        ship_space = Box(-1,1,shape=(Ship.REPR_SIZE*2,))
+        ship_space = Box(-1,1,shape=(Ship.REPR_SIZE,))
         missile_space = Box(-1,1,shape=(Missile.REPR_SIZE,))
-        missile_space = Repeated(missile_space, NUM_MISSILES)
-        self.observation_space = Dict({
+        self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
+        self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
+        self.observation_spaces = {i: Dict({
             "self": ship_space, # my ship, enemy ship
             "opponent": ship_space,
-            "missiles_friendly": missile_space, # Friendly missiles
-            "missiles_hostile": missile_space # Hostile missiles
-        })
-        self.agents = self.possible_agents = [0,1]
+            "missiles_friendly": self.missile_space, # Friendly missiles
+            "missiles_hostile": self.missile_space # Hostile missiles
+        }) for i in range(1)}
         self.maxTime = env_config['ep_length'] if 'ep_length' in env_config else DEFAULT_MAX_TIME
         self.speed = env_config['speed'] if 'speed' in env_config else 1.0
         self.size = env_config['render_size'] if 'render_size' in env_config else DEFAULT_RENDER_SIZE
@@ -47,8 +52,8 @@ class SW_1v1_env_singleplayer(gym.Env):
         return {0: {
                 "self": self.playerShips[0].get_obs(),
                 "opponent": self.playerShips[1].get_obs(),
-                "missiles_friendly": [m.get_obs() for m in self.missiles],
-                "missiles_hostile":  [],
+                "missiles_friendly": self.missile_space.encode_obs([m.get_obs() for m in self.missiles]),
+                "missiles_hostile":  self.missile_space.encode_obs([]),
               }
             }
     def get_keymap(self): # Set multidiscrete 
@@ -63,7 +68,7 @@ class SW_1v1_env_singleplayer(gym.Env):
         angle = np.random.uniform(0,2*np.pi)
         self.playerShips[1].pos = np.array([np.cos(angle), np.sin(angle)])*dist
     
-    def reset(self, seed=0, options={}):
+    def reset(self, seed=None, options={}):
         self.playerShips = [
             Ship(np.array([-.5, .5]), 90.),
             Dummy_Ship(np.array([0.,0.]),0.)

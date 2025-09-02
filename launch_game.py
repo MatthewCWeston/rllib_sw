@@ -15,6 +15,8 @@ import numpy as np
 import json
 import argparse
 
+from ray.rllib.core import DEFAULT_MODULE_ID
+
 env_name = sys.argv[1]
 
 parser = argparse.ArgumentParser()
@@ -24,11 +26,6 @@ parser.add_argument("--ckpt-path", type=str, default=None, help="Path to checkpo
 args = parser.parse_args()
 
 cfg = args.env_config
-agent = None
-if (args.ckpt_path is not None):
-    from classes.inference_helpers import load_checkpoint, query_model, query_value
-    ckpt_path = os.path.abspath(args.ckpt_path)
-    agent = load_checkpoint(ckpt_path)
 
 
 def instantiate_env(env_name, cfg):
@@ -40,12 +37,19 @@ def instantiate_env(env_name, cfg):
 env = instantiate_env(env_name, cfg)
 ad = env.get_keymap()
 ma_env = hasattr(env, 'agents')
+
 if (ma_env): # Handle envs in the multi-agent format
     agent_name = env.agents[0]
     ad = ad[agent_name]
 o, _ = env.reset()
 size = env.size
 
+# Load checkpoint
+agent = None
+if (args.ckpt_path is not None):
+    from classes.inference_helpers import load_checkpoint, query_model, query_value
+    ckpt_path = os.path.abspath(args.ckpt_path)
+    agent = load_checkpoint(ckpt_path, 'my_policy' if ma_env else DEFAULT_MODULE_ID)
 
 pygame.init()
 window = pygame.display.set_mode((size, size))
