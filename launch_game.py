@@ -76,7 +76,7 @@ term = trunc = done = False
 action = "default"
 total_reward = 0
 if ma_env:
-    a = np.zeros_like(env.action_space[agent_name].nvec)
+    a = np.zeros_like(env.action_spaces[agent_name].nvec)
 else:
     a = np.zeros_like(env.action_space.nvec)
 reset_acts = []
