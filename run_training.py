@@ -3,6 +3,7 @@ import importlib.util
 import json
 import torch
 import functools
+import numpy as np
 
 import ray
 from ray.rllib.models import ModelCatalog
@@ -54,7 +55,8 @@ parser.add_argument("--no-custom-arch", action='store_true') # Don't use the att
 parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivation
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 parser.add_argument("--lr", type=float, default=1e-6) 
-parser.add_argument("--lr-final", type=float) # Reward at end of training, if we want to change it.
+parser.add_argument("--lr-final", type=float) # Reward at end of training, for linear decay 
+parser.add_argument("--lr-half-life", type=float) # Epochs for LR to halve, for exponential decay
 parser.add_argument("--vf-clip", type=str, default='inf')
 parser.add_argument("--gamma", type=float, default=.999)
 parser.add_argument("--attn-dim", type=int, default=16) # Encoder dimensionality
@@ -139,7 +141,20 @@ else:
 if (args.curiosity):
     print('Using curiosity')
     add_curiosity(config, specs)
-if (args.lr_final and (args.lr_final != args.lr)):
+
+# Learning rate decay
+if (args.lr_half_life): # Default to exponential lr decay
+    lr_factor = np.e ** (np.log(0.5)/args.lr_half_life)
+    print(f"lr factor (exponential) = {lr_factor}")
+    config.experimental(
+        # Add two learning rate schedulers to be applied in sequence.
+        _torch_lr_scheduler_classes=[
+            functools.partial(
+                torch.optim.lr_scheduler.ExponentialLR, gamma=lr_factor
+            )
+        ]
+    )
+elif (args.lr_final and (args.lr_final != args.lr)):
     lr_factor = (args.lr_final/args.lr)**(1/args.stop_iters) # divide by lr_final_scale over all epochs.
     print(f"lr factor = {lr_factor}")
     config.experimental(
@@ -152,7 +167,7 @@ if (args.lr_final and (args.lr_final != args.lr)):
             )
         ]
     )
-    
+
 # Add spec
 config.rl_module(
     rl_module_spec=MultiRLModuleSpec(
