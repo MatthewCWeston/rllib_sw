@@ -15,13 +15,31 @@ import torch
 from torch import nn
 
 class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
-    def __init__(self, emb_dim, heads):
+    '''
+        https://github.com/pytorch/pytorch/blob/v2.8.0/torch/nn/modules/transformer.py#L933
+        Official implementation also uses self-attn, but includes a (default) 2048 dimension hidden layer (with ReLU activation), layer normalization, and some dropout layers.
+        1. x = x + self_attn(x)
+        2. x = Layernorm_1(x)
+        3. x = x + ff_module(x)
+        4. x = Layernorm_2(x)
+        
+        Layernorm subtracts mean and divides by standard deviation. Given that dropout layers serve to counteract overfitting, might be worth checking whether they're worth including in an RL agent.
+    '''
+    def __init__(self, emb_dim, heads, h_dim=128):
         super().__init__()
         self.mha = nn.MultiheadAttention(emb_dim, heads, batch_first=True)
-        self.residual = nn.Linear(emb_dim, emb_dim)
+        self.norm_attn = torch.nn.LayerNorm(emb_dim)
+        self.norm_ff = torch.nn.LayerNorm(emb_dim)
+        self.residual = nn.Sequential(
+            nn.Linear(emb_dim, h_dim),
+            nn.ReLU(),
+            nn.Linear(h_dim, emb_dim),
+        )
     def forward(self, x, src_key_padding_mask):
         x_attn, _ = self.mha(x, x, x, key_padding_mask=src_key_padding_mask, need_weights=False)
-        x = self.residual(x_attn) + x
+        x = self.norm_attn(x_attn + x)
+        x_ff = self.residual(x)
+        x = self.norm_ff(x_ff + x)
         return x
 
 class AttentionEncoder(TorchModel, Encoder):
@@ -34,13 +52,19 @@ class AttentionEncoder(TorchModel, Encoder):
             super().__init__(config)
             self.observation_space = config.observation_space
             self.emb_dim = config.emb_dim
-            self.layer_iters = config.layer_iters
+            self.recursive = config.recursive
+            self.attn_layers = config.attn_layers
             # Use an attention layer to reduce observations to a fixed length
-            if (config.full_transformer):
-                self.mha = nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=4, batch_first=True)
-            else:
-                self.mha = SimpleTransformerLayer(self.emb_dim, 4)
-             # Can just run a bunch of these in sequence, they are self-contained.
+            mhas = []
+            for _ in range(self.attn_layers):
+                if (config.full_transformer):
+                    mhas.append(nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=4, batch_first=True))
+                else:
+                    mhas.append(SimpleTransformerLayer(self.emb_dim, 4))
+                if (self.recursive): # If recursive, only create one layer
+                    break
+            self.mha = nn.ModuleList(mhas)
+            # Can just run a bunch of these in sequence, they are self-contained.
             # Set up embedding layers for each element in our observation
             embs = {}
             for n, s in self.observation_space.spaces.items():
@@ -85,8 +109,9 @@ class AttentionEncoder(TorchModel, Encoder):
         # All entities have embeddings. Apply masked residual self-attention and then mean-pool.
         x = torch.concatenate(embeddings, dim=1)  # batch_size, seq_len, unit_size
         mask = torch.concatenate(masks, dim=1)  # batch_size, seq_len
-        for _ in range(self.layer_iters):
-            x = self.mha(x, src_key_padding_mask=mask)
+        for i in range(self.attn_layers):
+            layer = self.mha[0] if self.recursive else self.mha[i]
+            x = layer(x, src_key_padding_mask=mask)
         # Masked mean-pooling.
         mask = mask.unsqueeze(dim=2)
         x = x * mask  # Mask x to exclude nonexistent entries from mean pool op
@@ -106,7 +131,8 @@ class AttentionEncoderConfig(ModelConfig):
         self.observation_space = observation_space
         self.emb_dim = kwargs["model_config_dict"]["attention_emb_dim"]
         self.full_transformer = kwargs["model_config_dict"]["full_transformer"]
-        self.layer_iters = kwargs["model_config_dict"]["layer_iters"]
+        self.attn_layers = kwargs["model_config_dict"]["attn_layers"]
+        self.recursive = kwargs["model_config_dict"]["recursive"]
         self.output_dims = (self.emb_dim,)
 
     def build(self, framework):

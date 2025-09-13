@@ -61,7 +61,8 @@ parser.add_argument("--vf-clip", type=str, default='inf')
 parser.add_argument("--gamma", type=float, default=.999)
 parser.add_argument("--attn-dim", type=int, default=16) # Encoder dimensionality
 parser.add_argument("--full-transformer", action='store_true') # Use full Transformer layers from PyTorch
-parser.add_argument("--layer-iters", type=int, default=1) # Times to recursively run our attention layer
+parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively run our attention layer
+parser.add_argument("--attn-recursive", action='store_true')
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
 parser.add_argument("--batch-size", type=int, default=32768)
 parser.add_argument("--minibatch-size", type=int, default=4096)
@@ -126,7 +127,8 @@ if (not args.no_custom_arch):
             model_config={
                 "attention_emb_dim": args.attn_dim,
                 "full_transformer": args.full_transformer,
-                "layer_iters": args.layer_iters,
+                "attn_layers": args.attn_layers,
+                "recursive": args.attn_recursive,
                 "head_fcnet_hiddens": tuple(args.fcnet),
                 "vf_share_layers": args.share_layers,
             },
