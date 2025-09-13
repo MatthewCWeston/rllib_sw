@@ -14,6 +14,15 @@ from classes.repeated_space import RepeatedCustom
 import torch
 from torch import nn
 
+class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
+    def __init__(self, emb_dim, heads):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(emb_dim, heads, batch_first=True)
+        self.residual = nn.Linear(emb_dim, emb_dim)
+    def forward(self, x, src_key_padding_mask):
+        x_attn, _ = self.mha(x, x, x, key_padding_mask=src_key_padding_mask, need_weights=False)
+        x = self.residual(x_attn) + x
+        return x
 
 class AttentionEncoder(TorchModel, Encoder):
     """
@@ -25,10 +34,13 @@ class AttentionEncoder(TorchModel, Encoder):
             super().__init__(config)
             self.observation_space = config.observation_space
             self.emb_dim = config.emb_dim
+            self.layer_iters = config.layer_iters
             # Use an attention layer to reduce observations to a fixed length
-            '''self.mha = nn.MultiheadAttention(self.emb_dim, 4, batch_first=True)
-            self.residual = nn.Linear(self.emb_dim, self.emb_dim)'''
-            self.enc_layer_1 = nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=4, batch_first=True) # Can just run a bunch of these in sequence, they are self-contained.
+            if (config.full_transformer):
+                self.mha = nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=4, batch_first=True)
+            else:
+                self.mha = SimpleTransformerLayer(self.emb_dim, 4)
+             # Can just run a bunch of these in sequence, they are self-contained.
             # Set up embedding layers for each element in our observation
             embs = {}
             for n, s in self.observation_space.spaces.items():
@@ -73,12 +85,8 @@ class AttentionEncoder(TorchModel, Encoder):
         # All entities have embeddings. Apply masked residual self-attention and then mean-pool.
         x = torch.concatenate(embeddings, dim=1)  # batch_size, seq_len, unit_size
         mask = torch.concatenate(masks, dim=1)  # batch_size, seq_len
-        # Attention
-        '''x_attn, _ = self.mha(x, x, x, key_padding_mask=mask, need_weights=False)
-        x = self.residual(x_attn) + x
-        '''
-        x = self.enc_layer_1(x, src_key_padding_mask=mask)
-        x = self.enc_layer_1(x, src_key_padding_mask=mask)
+        for _ in range(self.layer_iters):
+            x = self.mha(x, src_key_padding_mask=mask)
         # Masked mean-pooling.
         mask = mask.unsqueeze(dim=2)
         x = x * mask  # Mask x to exclude nonexistent entries from mean pool op
@@ -97,6 +105,8 @@ class AttentionEncoderConfig(ModelConfig):
     def __init__(self, observation_space, **kwargs):
         self.observation_space = observation_space
         self.emb_dim = kwargs["model_config_dict"]["attention_emb_dim"]
+        self.full_transformer = kwargs["model_config_dict"]["full_transformer"]
+        self.layer_iters = kwargs["model_config_dict"]["layer_iters"]
         self.output_dims = (self.emb_dim,)
 
     def build(self, framework):

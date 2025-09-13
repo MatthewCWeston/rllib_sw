@@ -29,7 +29,7 @@ class Dummy_Ship(Ship):
 class SW_1v1_env_singleplayer(MultiAgentEnv):
     def __init__(self, env_config={}):
         super().__init__()
-        self.agents = self.possible_agents = self.possible_agents = [0]
+        self.agents = self.possible_agents = [0]
         # nop/thrust, nop/left/right, npo/shoot
         self.action_spaces = {i: MultiDiscrete([2,3,2]) for i in range(1)}
         # Observation spaces; fixed and variable
