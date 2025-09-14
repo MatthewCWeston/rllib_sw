@@ -9,6 +9,7 @@ import ray
 from ray.rllib.models import ModelCatalog
 
 from ray.rllib.algorithms.ppo.ppo import PPOConfig
+from ray.rllib.connectors.env_to_module.flatten_observations import FlattenObservations
 from ray.rllib.core import DEFAULT_MODULE_ID
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
@@ -55,13 +56,13 @@ parser.add_argument("--no-custom-arch", action='store_true') # Don't use the att
 parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivation
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 parser.add_argument("--lr", type=float, default=1e-6) 
-parser.add_argument("--lr-final", type=float) # Reward at end of training, for linear decay 
 parser.add_argument("--lr-half-life", type=float) # Epochs for LR to halve, for exponential decay
 parser.add_argument("--vf-clip", type=str, default='inf')
 parser.add_argument("--gamma", type=float, default=.999)
-parser.add_argument("--attn-dim", type=int, default=16) # Encoder dimensionality
-parser.add_argument("--full-transformer", action='store_true') # Use full Transformer layers from PyTorch
+parser.add_argument("--attn-dim", type=int, default=124) # Encoder dimensionality
+parser.add_argument("--attn-ff-dim", type=int, default=2048) # Feedforward component of attention layers
 parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively run our attention layer
+parser.add_argument("--full-transformer", action='store_true') # Use full Transformer layers from PyTorch
 parser.add_argument("--attn-recursive", action='store_true')
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
 parser.add_argument("--batch-size", type=int, default=32768)
@@ -82,9 +83,6 @@ config = (
     .environment(
         env="env",
         env_config=args.env_config,
-    )
-    .env_runners(
-        num_env_runners=args.num_env_runners,
     )
     .framework("torch")
     .training(
@@ -128,21 +126,29 @@ if (not args.no_custom_arch):
                 "attention_emb_dim": args.attn_dim,
                 "full_transformer": args.full_transformer,
                 "attn_layers": args.attn_layers,
+                "attn_ff_dim": args.attn_ff_dim,
                 "recursive": args.attn_recursive,
                 "head_fcnet_hiddens": tuple(args.fcnet),
                 "vf_share_layers": args.share_layers,
             },
         )
     }
+    config.env_runners(
+        num_env_runners=args.num_env_runners,
+    )
 else:
     print('Using default architecture')
     specs = {
         module_id: RLModuleSpec(
-            observation_space=obs_space,
-            action_space=act_space,
             model_config=DefaultModelConfig(),
         )
     }
+    config.env_runners(
+        num_env_runners=args.num_env_runners,
+        env_to_module_connector=(
+            lambda env, spaces, device: FlattenObservations(multi_agent=ma_env)
+        ),
+    )
 # Curiosity
 if (args.curiosity):
     print('Using curiosity')
@@ -157,19 +163,6 @@ if (args.lr_half_life): # Default to exponential lr decay
         _torch_lr_scheduler_classes=[
             functools.partial(
                 torch.optim.lr_scheduler.ExponentialLR, gamma=lr_factor
-            )
-        ]
-    )
-elif (args.lr_final and (args.lr_final != args.lr)):
-    lr_factor = (args.lr_final/args.lr)**(1/args.stop_iters) # divide by lr_final_scale over all epochs.
-    print(f"lr factor = {lr_factor}")
-    config.experimental(
-        # Add two learning rate schedulers to be applied in sequence.
-        _torch_lr_scheduler_classes=[
-            functools.partial(
-                torch.optim.lr_scheduler.ConstantLR,
-                factor=lr_factor,
-                total_iters=args.stop_iters,
             )
         ]
     )

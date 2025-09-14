@@ -41,6 +41,9 @@ ma_env = hasattr(env, 'agents')
 if (ma_env): # Handle envs in the multi-agent format
     agent_name = env.agents[0]
     ad = ad[agent_name]
+    action_space = env.action_spaces[agent_name]
+else:
+    action_space = env.action_space
 o, _ = env.reset()
 size = env.size
 
@@ -63,7 +66,7 @@ def im_postproc(im, a, r):
   # Time is rendered here by the environment itself.
   d.text((10, im.height-40), f"Reward: {r}", (255, 255, 255))
   if (args.ckpt_path is not None):
-    v = query_value(agent, o, env)
+    v = query_value(agent, (o[agent_name] if ma_env else o), env)
     d.text((10, im.height-20), f"Agent Value: {v:.2f}", (255, 255, 255))
   return im
 
@@ -108,10 +111,10 @@ while run:
                 a[x[0]] = 0
     if ((done or paused) == False):
         if (agent_control): # If we're running an agent
-            a = query_model(agent, o, env)
+            a = query_model(agent, (o[agent_name] if ma_env else o), env, action_space)
         if ma_env:
             o, r, term, trunc, _ = env.step({agent_name: a})
-            o, r = o[agent_name], r[agent_name]
+            r = r[agent_name]
             term, trunc = term['__all__'], trunc['__all__']
         else:
             o, r, term, trunc, _ = env.step(a)

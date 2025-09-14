@@ -131,7 +131,7 @@ class SW_MultiShoot_Env(gym.Env):
                 del self.missiles[i]
             if (hp):
                 self.terminated = True
-                reward -= 1
+                reward = -1
             if (hg != -1):
                 del self.goals[hg]
                 reward += 1
@@ -144,7 +144,7 @@ class SW_MultiShoot_Env(gym.Env):
         # Reward is +10 for hitting a target, -10 for collidijng with the star or a missile.
         if (np.linalg.norm(self.pos, 2) < self.pSize + self.sSize):
             self.terminated = True;
-            reward -= 1
+            reward = -1
         elif (len(self.missiles) == 0 and self.stored_missiles==0):
             self.terminated = True # End game when no missiles stored or in flight
         if (len(self.goals)==0):

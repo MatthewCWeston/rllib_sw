@@ -9,18 +9,8 @@ import pygame
 from classes.repeated_space import RepeatedCustom
 
 from environments.SpaceWar_constants import *
-from environments.SpaceWar_objects import Missile, Ship
-
-# Add circle wrap; add variable time setting
-def wrap(p):
-    ''' Wraps a point within a circle of radius 1 and center [0, 0] '''
-    dist = (p**2).sum()
-    if (dist <= 1):
-        return
-    else:
-        past = dist**.5 - 1
-        p *= -1 * (1-past)
-        
+from environments.SpaceWar_objects import Missile, Ship, wrap
+      
 class Dummy_Ship(Ship):
     def get_obs(self):
         # pos, vel, angle unit vector, ammo remaining

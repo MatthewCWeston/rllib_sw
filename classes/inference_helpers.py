@@ -14,12 +14,22 @@ def load_checkpoint(ckpt_path, module_id):
         module_id,
     )
     return RLModule.from_checkpoint(ckpt)
+    
+def obs_to_tensor(obs):
+    if (type(obs) is dict):
+        r = {}
+        for k, v in obs.items():
+            r[k] = obs_to_tensor(v)
+        return r
+    else:
+        return torch.tensor(obs).unsqueeze(0).float()
 
-def query_model(agent, obs, env):
+def query_model(agent, obs, env, action_space):
     # Model expects a vector instead of a dictionary
-    input_dict = {Columns.OBS: torch.tensor(obs).unsqueeze(0)}
+    obs = obs_to_tensor(obs)
+    input_dict = {Columns.OBS: obs}
     #
-    action_shape = tuple(env.action_space.nvec)
+    action_shape = tuple(action_space.nvec)
     module_out = agent.forward_inference(input_dict)
     a = module_out['action_dist_inputs'][0]
     p = 0
@@ -33,7 +43,7 @@ def query_model(agent, obs, env):
     return actions
     
 def query_value(agent, obs, env):
-    input_dict = {Columns.OBS: torch.tensor(obs).unsqueeze(0)}
+    input_dict = {Columns.OBS: obs_to_tensor(obs)}
     #
     module_out = agent.compute_values(input_dict)
     return module_out.item()

@@ -13,30 +13,35 @@ from classes.repeated_space import RepeatedCustom
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
     '''
         https://github.com/pytorch/pytorch/blob/v2.8.0/torch/nn/modules/transformer.py#L933
         Official implementation also uses self-attn, but includes a (default) 2048 dimension hidden layer (with ReLU activation), layer normalization, and some dropout layers.
-        1. x = x + self_attn(x)
+        1. x = x + dropout(self_attn(x))
         2. x = Layernorm_1(x)
         3. x = x + ff_module(x)
         4. x = Layernorm_2(x)
         
-        Layernorm subtracts mean and divides by standard deviation. Given that dropout layers serve to counteract overfitting, might be worth checking whether they're worth including in an RL agent.
+        Layernorm subtracts mean and divides by standard deviation. The dropout layers are vital to regularization, at least for emb_dim=128, and the network falls apart without them.
     '''
-    def __init__(self, emb_dim, heads, h_dim=128):
+    def __init__(self, emb_dim, heads, h_dim=2048, dropout=0.1):
         super().__init__()
-        self.mha = nn.MultiheadAttention(emb_dim, heads, batch_first=True)
+        self.dropout = dropout
+        self.mha = nn.MultiheadAttention(emb_dim, heads, dropout=dropout, batch_first=True)
         self.norm_attn = torch.nn.LayerNorm(emb_dim)
         self.norm_ff = torch.nn.LayerNorm(emb_dim)
         self.residual = nn.Sequential(
             nn.Linear(emb_dim, h_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(h_dim, emb_dim),
+            nn.Dropout(dropout),
         )
     def forward(self, x, src_key_padding_mask):
         x_attn, _ = self.mha(x, x, x, key_padding_mask=src_key_padding_mask, need_weights=False)
+        x_attn = F.dropout(x_attn, self.dropout)
         x = self.norm_attn(x_attn + x)
         x_ff = self.residual(x)
         x = self.norm_ff(x_ff + x)
@@ -58,9 +63,11 @@ class AttentionEncoder(TorchModel, Encoder):
             mhas = []
             for _ in range(self.attn_layers):
                 if (config.full_transformer):
-                    mhas.append(nn.TransformerEncoderLayer(d_model=self.emb_dim, nhead=4, batch_first=True))
+                    mhas.append(nn.TransformerEncoderLayer(d_model=self.emb_dim, 
+                        dim_feedforward=config.attn_ff_dim, nhead=4, batch_first=True))
                 else:
-                    mhas.append(SimpleTransformerLayer(self.emb_dim, 4))
+                    mhas.append(SimpleTransformerLayer(self.emb_dim, 4,
+                        h_dim=config.attn_ff_dim))
                 if (self.recursive): # If recursive, only create one layer
                     break
             self.mha = nn.ModuleList(mhas)
@@ -88,7 +95,7 @@ class AttentionEncoder(TorchModel, Encoder):
         obs_s = self.observation_space
         embeddings = []
         masks = []
-        for s in sorted(obs.keys()):
+        for s in obs.keys():
             v = obs[s]
             v_s = obs_s[s]
             if type(v_s) is RepeatedCustom:
@@ -130,6 +137,7 @@ class AttentionEncoderConfig(ModelConfig):
     def __init__(self, observation_space, **kwargs):
         self.observation_space = observation_space
         self.emb_dim = kwargs["model_config_dict"]["attention_emb_dim"]
+        self.attn_ff_dim = kwargs["model_config_dict"]["attn_ff_dim"]
         self.full_transformer = kwargs["model_config_dict"]["full_transformer"]
         self.attn_layers = kwargs["model_config_dict"]["attn_layers"]
         self.recursive = kwargs["model_config_dict"]["recursive"]
