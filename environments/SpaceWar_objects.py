@@ -2,13 +2,12 @@ import numpy as np
 from environments.SpaceWar_constants import *
 
 def wrap(p):
-    ''' Wraps a point within a circle of radius 1 and center [0, 0] '''
-    dist = (p**2).sum()
-    if (dist <= 1):
-        return
-    else:
-        past = dist**.5 - 1
-        p *= -1 * (1-past)
+    ''' Wraps a point within a square of size 2 centered on [0,0]'''
+    for i in range(2):
+        if (p[i]>1):
+            p[i] -= 2
+        elif (p[i]<-1):
+            p[i] += 2
         
 def rotate_pt(p, a):
     a = -a*np.pi/180
@@ -19,9 +18,11 @@ def rotate_pt(p, a):
     
 def ego_pt(p, ego): # egocentric coordinates, accounting for wrapping around a unit circle
     diff = p - ego.pos # relative position 
+    # Wrap adjusted position by wrapping dist
+    wrap(diff)
+    # Adjust target position by angle.
     pos_adj = rotate_pt(diff, -ego.ang) # Rotate s.t. ego has angle zero
     return pos_adj
-    
 
 class Missile():
     REPR_SIZE = 5
@@ -109,7 +110,9 @@ class Ship():
         else:
             if (ego==self):
                 p = rotate_pt(-self.pos, -ego.ang)# Location of star, adjusted for angle
-                auv = np.array([0,0]) # Since we adjust everything else to nullify player angle
+                #auv = np.array([0,0]) # Since we adjust everything else to nullify player angle
+                nearest_corner = np.sign(self.pos)
+                auv = ego_pt(nearest_corner, ego) # For self, auv is the nearest corner instead.
             else:
                 p = ego_pt(self.pos, ego)
                 auv = rotate_pt(self.angUV, -ego.ang)
@@ -125,15 +128,29 @@ class Ship():
             ang = self.ang
         else:
             adj = self.get_obs(ego)
+            # Note AUV is instead the position of the nearest corner when ego==self
             pos, vel, auv = adj[:2],adj[2:4],adj[4:6]
             ang = self.ang-ego.ang
             if (ego==self):
-                # Draw star and wrap boundary
+                # Draw star
                 p = (pos+1)*hdim
                 for i in range(2):
                     ss = np.random.uniform(-1.0, 1.0, 2) * ssz/2
                     draw.line((p[0]+ss[0], p[1]+ss[1], p[0]-ss[0], p[1]-ss[1]), fill='white', width=1)
-                draw.ellipse([p[0]-hdim,p[1]-hdim,p[0]+hdim,p[1]+hdim], outline='white')
+                # wrap bounds
+                #draw.ellipse([p[0]-hdim,p[1]-hdim,p[0]+hdim,p[1]+hdim], outline='white')
+                ncp = (auv+1)*hdim
+                for a in [-1,1]: # Nearest corner
+                    ss = np.array([1,a]) * ssz/2
+                    draw.line((ncp[0]+ss[0], ncp[1]+ss[1], ncp[0]-ss[0], ncp[1]-ss[1]), 
+                        fill='red', width=1)
+                # Full wrap bounds (not directly shown to agent)
+                corners = [[1,1],[1,-1],[-1,-1],[-1,1]]
+                corners = [(rotate_pt(c-ego.pos, -ego.ang)+1) * hdim for c in corners]
+                prev = corners[-1]
+                for c in corners:
+                    draw.line([prev[0],prev[1],c[0],c[1]], fill='grey',width=1)
+                    prev = c
                 # Ship should be drawn in the center 
                 pos = np.array([0,0])
         
@@ -161,9 +178,9 @@ class Ship():
         y+=2
         draw.line([(x, y), (x+bar_len*max(0,self.reloadTime)/MISSILE_RELOAD_TIME, y)], width=1, fill='yellow')
         # Draw an orange line indicating angle unit vector 
-        #if (ego is not self):
-        auv = auv*psz
-        draw.line([p[0],p[1], p[0]+auv[0],p[1]+auv[1]], width=1, fill='orange')
+        if (ego is not self):
+            auv = auv*psz
+            draw.line([p[0],p[1], p[0]+auv[0],p[1]+auv[1]], width=1, fill='orange')
         # Draw a cyan line indicating velocity
         vel = vel * psz*dim*2
         draw.line([p[0],p[1], p[0]+vel[0],p[1]+vel[1]], width=1, fill='cyan')

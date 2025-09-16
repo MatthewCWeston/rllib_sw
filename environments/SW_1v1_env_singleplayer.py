@@ -119,7 +119,8 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 ss = np.random.uniform(-1.0, 1.0, 2) * ssz/2
                 draw.line((hdim+ss[0], hdim+ss[1], hdim-ss[0], hdim-ss[1]), fill='white', width=1)
             # Draw the wrapping radius 
-            draw.ellipse((0, 0, dim, dim), outline='white')
+            #draw.ellipse((0, 0, dim, dim), outline='white')
+            draw.rectangle((0,0,dim,dim), outline='white')
         # Draw the player
         ship = self.playerShips[0]
         ship.render(draw, dim, hdim, psz, ssz, self.terminated, ego=ego)
