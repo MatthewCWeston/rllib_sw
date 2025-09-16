@@ -67,9 +67,8 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 }
                 
     def new_target_position(self):
-        dist = np.random.uniform(.1,1)
-        angle = np.random.uniform(0,2*np.pi)
-        self.playerShips[1].pos = np.array([np.cos(angle), np.sin(angle)])*dist
+        position = np.random.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
+        self.playerShips[1].pos = position
     
     def reset(self, seed=None, options={}):
         self.playerShips = [
@@ -120,7 +119,8 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 draw.line((hdim+ss[0], hdim+ss[1], hdim-ss[0], hdim-ss[1]), fill='white', width=1)
             # Draw the wrapping radius 
             #draw.ellipse((0, 0, dim, dim), outline='white')
-            draw.rectangle((0,0,dim,dim), outline='white')
+            rs = (1-WRAP_BOUND) * hdim
+            draw.rectangle((rs,rs,dim-rs,dim-rs), outline='white')
         # Draw the player
         ship = self.playerShips[0]
         ship.render(draw, dim, hdim, psz, ssz, self.terminated, ego=ego)

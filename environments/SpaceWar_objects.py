@@ -1,13 +1,14 @@
 import numpy as np
 from environments.SpaceWar_constants import *
+from environments.SpaceWar_constants import WRAP_BOUND
 
 def wrap(p):
     ''' Wraps a point within a square of size 2 centered on [0,0]'''
     for i in range(2):
-        if (p[i]>1):
-            p[i] -= 2
-        elif (p[i]<-1):
-            p[i] += 2
+        if (p[i]>WRAP_BOUND):
+            p[i] -= 2*WRAP_BOUND
+        elif (p[i]<-WRAP_BOUND):
+            p[i] += 2*WRAP_BOUND
         
 def rotate_pt(p, a):
     a = -a*np.pi/180
@@ -94,7 +95,7 @@ class Ship():
             self.stored_missiles -= 1
             self.reloadTime = MISSILE_RELOAD_TIME
         else:
-            self.reloadTime -=  speed
+            self.reloadTime =  max(self.reloadTime-speed,0)
         # Update position
         self.pos += self.vel * speed
         self.vel = np.clip(self.vel, -1.0, 1.0)
@@ -111,7 +112,7 @@ class Ship():
             if (ego==self):
                 p = rotate_pt(-self.pos, -ego.ang)# Location of star, adjusted for angle
                 #auv = np.array([0,0]) # Since we adjust everything else to nullify player angle
-                nearest_corner = np.sign(self.pos)
+                nearest_corner = np.sign(self.pos)*WRAP_BOUND
                 auv = ego_pt(nearest_corner, ego) # For self, auv is the nearest corner instead.
             else:
                 p = ego_pt(self.pos, ego)
@@ -146,7 +147,8 @@ class Ship():
                         fill='red', width=1)
                 # Full wrap bounds (not directly shown to agent)
                 corners = [[1,1],[1,-1],[-1,-1],[-1,1]]
-                corners = [(rotate_pt(c-ego.pos, -ego.ang)+1) * hdim for c in corners]
+                corners = [(rotate_pt(np.array(c)*WRAP_BOUND-ego.pos, 
+                            -ego.ang)+1) * hdim for c in corners]
                 prev = corners[-1]
                 for c in corners:
                     draw.line([prev[0],prev[1],c[0],c[1]], fill='grey',width=1)

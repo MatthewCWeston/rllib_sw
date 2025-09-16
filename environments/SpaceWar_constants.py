@@ -13,3 +13,5 @@ DEFAULT_MAX_TIME = 1024
 DEFAULT_RENDER_SIZE = 750
 PLAYER_SIZE = .02 # Player size
 STAR_SIZE = .01 # Star size
+
+WRAP_BOUND = .5**.5 # x/y distance from star at which wrapping occurs 
