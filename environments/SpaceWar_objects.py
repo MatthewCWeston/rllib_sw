@@ -20,10 +20,28 @@ def rotate_pt(p, a):
 def ego_pt(p, ego): # egocentric coordinates, accounting for wrapping around a unit circle
     diff = p - ego.pos # relative position 
     # Wrap adjusted position by wrapping dist
-    wrap(diff)
+    #wrap(diff) # Doesn't seem helpful.
     # Adjust target position by angle.
     pos_adj = rotate_pt(diff, -ego.ang) # Rotate s.t. ego has angle zero
     return pos_adj
+    
+def gr_helper(p, a):
+    a = a * np.pi/180
+    m = np.tan(a)+1e-12 # slope from angle 
+    i = p[1] - m * p[0] # y intercept from slope and point
+    # for each edge, get the point of intersection. Horizontal edges are y=+-WB, vertical are x=+-WB
+    pois = [
+        ((WRAP_BOUND - i) / m, WRAP_BOUND), ((-WRAP_BOUND - i) / m, -WRAP_BOUND), # horizontal
+        (WRAP_BOUND, m*WRAP_BOUND+i), (-WRAP_BOUND, m*-WRAP_BOUND+i), # vertical
+        ]
+    distances = [((x-p)**2).sum() for x in pois]
+    signs = [np.sign(x[0]-p[0]) * np.sign(np.cos(a) * (-1 if i < 2 else 1)) for i, x in enumerate(pois)]
+    i = np.argmin(distances)
+    return distances[i]**.5 * signs[i]
+    
+def get_raycasts(p, a):
+    ''' Get the distances from a ship's front and side to the nearest edge''' 
+    return [gr_helper(p, a), gr_helper(p, a-90)] # ignore second raycast for now
 
 class Missile():
     REPR_SIZE = 5
@@ -112,8 +130,9 @@ class Ship():
             if (ego==self):
                 p = rotate_pt(-self.pos, -ego.ang)# Location of star, adjusted for angle
                 #auv = np.array([0,0]) # Since we adjust everything else to nullify player angle
-                nearest_corner = np.sign(self.pos)*WRAP_BOUND
-                auv = ego_pt(nearest_corner, ego) # For self, auv is the nearest corner instead.
+                '''nearest_corner = np.sign(self.pos)*WRAP_BOUND
+                auv = ego_pt(nearest_corner, ego) # For self, auv is the nearest corner instead.'''
+                auv = get_raycasts(self.pos, self.ang)
             else:
                 p = ego_pt(self.pos, ego)
                 auv = rotate_pt(self.angUV, -ego.ang)
@@ -140,11 +159,16 @@ class Ship():
                     draw.line((p[0]+ss[0], p[1]+ss[1], p[0]-ss[0], p[1]-ss[1]), fill='white', width=1)
                 # wrap bounds
                 #draw.ellipse([p[0]-hdim,p[1]-hdim,p[0]+hdim,p[1]+hdim], outline='white')
-                ncp = (auv+1)*hdim
+                '''ncp = (auv+1)*hdim
                 for a in [-1,1]: # Nearest corner
                     ss = np.array([1,a]) * ssz/2
                     draw.line((ncp[0]+ss[0], ncp[1]+ss[1], ncp[0]-ss[0], ncp[1]-ss[1]), 
-                        fill='red', width=1)
+                        fill='red', width=1)'''
+                # Raycasts to nearest edges
+                t = auv[0] * hdim
+                draw.line((hdim, hdim, hdim+t, hdim), fill='red', width=1)
+                t = auv[1] * hdim
+                draw.line((hdim, hdim, hdim, hdim+t), fill='red', width=1)
                 # Full wrap bounds (not directly shown to agent)
                 corners = [[1,1],[1,-1],[-1,-1],[-1,1]]
                 corners = [(rotate_pt(np.array(c)*WRAP_BOUND-ego.pos, 
