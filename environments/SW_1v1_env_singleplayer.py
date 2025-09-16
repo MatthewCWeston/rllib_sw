@@ -88,7 +88,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         ship.update(actions[0], self.missiles, self.speed)
         if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE + STAR_SIZE):
             self.terminated = True;
-            self.rewards = {0: -1}
+            self.rewards[0] = -5 # Add a strong incentive to learn not hitting the star early.
         # Update missiles
         for i in reversed(range(len(self.missiles))):
             si,d = self.missiles[i].update(self.playerShips, self.speed) # Return hit_obj
