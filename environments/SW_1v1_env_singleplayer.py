@@ -48,6 +48,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.maxTime = env_config['ep_length'] if 'ep_length' in env_config else DEFAULT_MAX_TIME
         self.speed = env_config['speed'] if 'speed' in env_config else 1.0
         self.size = env_config['render_size'] if 'render_size' in env_config else DEFAULT_RENDER_SIZE
+        self.grav_multiplier = env_config['grav_multiplier'] if 'grav_multiplier' in env_config else 1.0
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
     def get_obs(self):
@@ -85,7 +86,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.time += 1 * self.speed
         # Thrust is acc times anguv
         ship = self.playerShips[0]
-        ship.update(actions[0], self.missiles, self.speed)
+        ship.update(actions[0], self.missiles, self.speed, grav_multiplier=self.grav_multiplier)
         if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE + STAR_SIZE):
             self.terminated = True;
             self.rewards[0] = -1

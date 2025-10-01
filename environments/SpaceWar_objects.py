@@ -20,7 +20,7 @@ def rotate_pt(p, a):
 def ego_pt(p, ego): # egocentric coordinates, accounting for wrapping around a unit circle
     diff = p - ego.pos # relative position 
     # Wrap adjusted position by wrapping dist
-    #wrap(diff) # Doesn't seem helpful.
+    wrap(diff) # This line decides whether we wrap objects that are closer via wrapping
     # Adjust target position by angle.
     pos_adj = rotate_pt(diff, -ego.ang) # Rotate s.t. ego has angle zero
     return pos_adj
@@ -95,7 +95,7 @@ class Ship():
     def updateAngUV(self):
         a = self.ang*np.pi/180
         self.angUV = np.array([np.cos(a), -np.sin(a)])
-    def update(self, action, missiles, speed):
+    def update(self, action, missiles, speed, grav_multiplier=1.):
         self.updateAngUV()
         self.last_act = action # for rendering
         # Take actions 
@@ -119,7 +119,7 @@ class Ship():
         self.vel = np.clip(self.vel, -1.0, 1.0)
         wrap(self.pos)
         # Apply force of gravity. GMm can be treated as a single constant.
-        self.vel -= (self.pos * GRAV_CONST / (self.pos[0]**2 + self.pos[1]**2)** 1.5) * speed
+        self.vel -= (self.pos * GRAV_CONST / (self.pos[0]**2 + self.pos[1]**2)** 1.5) * speed * grav_multiplier
     def get_obs(self, ego=None):
         # pos, vel, angle unit vector, ammo remaining
         if (ego is None):

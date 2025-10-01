@@ -32,7 +32,8 @@ from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.curiosity import add_curiosity
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
-from classes.checkpoint_restore_callback import assignRestoreCallback
+from callbacks.checkpoint_restore_callback import assignRestoreCallback
+from callbacks.curriculum_learning_callback import CurriculumLearningCallback
 
 
 # Get environment class 
@@ -53,13 +54,15 @@ parser.set_defaults(
 parser.add_argument("--env-config", type=json.loads, default={})
 parser.add_argument("--env-name", type=str)
 parser.add_argument("--no-custom-arch", action='store_true') # Don't use the attention-based encoder.
+parser.add_argument("--use-lstm", action='store_true') # Use an LSTM (default arch only for now)
 parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivation
+parser.add_argument("--curriculum", action='store_true') # Use curriculum learning
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 parser.add_argument("--lr", type=float, default=1e-6) 
 parser.add_argument("--lr-half-life", type=float) # Epochs for LR to halve, for exponential decay
 parser.add_argument("--vf-clip", type=str, default='inf')
 parser.add_argument("--gamma", type=float, default=.999)
-parser.add_argument("--attn-dim", type=int, default=124) # Encoder dimensionality
+parser.add_argument("--attn-dim", type=int, default=128) # Encoder dimensionality
 parser.add_argument("--attn-ff-dim", type=int, default=2048) # Feedforward component of attention layers
 parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively run our attention layer
 parser.add_argument("--full-transformer", action='store_true') # Use full Transformer layers from PyTorch
@@ -92,7 +95,7 @@ config = (
         lr=args.lr,
         vf_clip_param=float(args.vf_clip),
         learner_class=BatchedCriticPPOLearner,
-        learner_config_dict={'critic_batch_size': args.critic_batch_size}, # Pass batch size here
+        learner_config_dict={'critic_batch_size': args.critic_batch_size}, # Just to avoid OOM; not a hyperparameter
     )
 )
 # Handle envs in MA format
@@ -140,7 +143,10 @@ else:
     print('Using default architecture')
     specs = {
         module_id: RLModuleSpec(
-            model_config=DefaultModelConfig(),
+            model_config=DefaultModelConfig(
+                use_lstm=args.use_lstm,
+                lstm_cell_size=1024,
+            ),
         )
     }
     config.env_runners(
@@ -153,6 +159,19 @@ else:
 if (args.curiosity):
     print('Using curiosity')
     add_curiosity(config, specs)
+    
+# Curriculum Learning
+if (args.curriculum):
+    print('Using curriculum learning')
+    config.callbacks(
+        functools.partial(
+            CurriculumLearningCallback,
+            env_config=args.env_config,
+            promotion_threshold = 1.0,
+            promotion_patience = 2,
+            num_increments = 10,
+        )
+    )
 
 # Learning rate decay
 if (args.lr_half_life): # Default to exponential lr decay
