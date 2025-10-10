@@ -34,6 +34,7 @@ from classes.curiosity import add_curiosity
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
 from callbacks.checkpoint_restore_callback import assignRestoreCallback
 from callbacks.curriculum_learning_callback import CurriculumLearningCallback
+from callbacks.render_callback import RenderCallback
 
 
 # Get environment class 
@@ -57,11 +58,14 @@ parser.add_argument("--no-custom-arch", action='store_true') # Don't use the att
 parser.add_argument("--use-lstm", action='store_true') # Use an LSTM (default arch only for now)
 parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivation
 parser.add_argument("--curriculum", action='store_true') # Use curriculum learning
+parser.add_argument("--curriculum-increments", type=int, default=10) # Rate to phase in gravity
+parser.add_argument("--curriculum-patience", type=int, default=10) # Episodes over threshold b4 promotion
+parser.add_argument("--curriculum-threshold", type=float, default=1.1) # Reward at which to promote
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 parser.add_argument("--lr", type=float, default=1e-6) 
 parser.add_argument("--lr-half-life", type=float) # Epochs for LR to halve, for exponential decay
-parser.add_argument("--vf-clip", type=str, default='inf')
-parser.add_argument("--gamma", type=float, default=.999)
+parser.add_argument("--vf-clip", type=str, default='40.0')
+parser.add_argument("--gamma", type=float, default=.980)
 parser.add_argument("--attn-dim", type=int, default=128) # Encoder dimensionality
 parser.add_argument("--attn-ff-dim", type=int, default=2048) # Feedforward component of attention layers
 parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively run our attention layer
@@ -71,6 +75,7 @@ parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head ar
 parser.add_argument("--batch-size", type=int, default=32768)
 parser.add_argument("--minibatch-size", type=int, default=4096)
 parser.add_argument("--critic-batch-size", type=int, default=32768)
+parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--restore-checkpoint", type=str)
 
 args = parser.parse_args()
@@ -80,7 +85,7 @@ target_env = get_env_class(env_name)
 register_env("env", lambda cfg: target_env(cfg))
 
 # Configure run
-
+callbacks = []
 config = (
     PPOConfig()
     .environment(
@@ -94,6 +99,9 @@ config = (
         gamma=args.gamma,
         lr=args.lr,
         vf_clip_param=float(args.vf_clip),
+        use_kl_loss=False,  # From hyperparameter search
+        grad_clip=100,      # From hyperparameter search
+        lambda_=0.98,       # From hyperparameter search
         learner_class=BatchedCriticPPOLearner,
         learner_config_dict={'critic_batch_size': args.critic_batch_size}, # Just to avoid OOM; not a hyperparameter
     )
@@ -163,13 +171,14 @@ if (args.curiosity):
 # Curriculum Learning
 if (args.curriculum):
     print('Using curriculum learning')
-    config.callbacks(
+    callbacks.append(
         functools.partial(
             CurriculumLearningCallback,
             env_config=args.env_config,
-            promotion_threshold = 1.0,
-            promotion_patience = 2,
+            promotion_threshold = args.curriculum_threshold,
+            promotion_patience = args.curriculum_patience,
             num_increments = 10,
+            start_increment = int(args.env_config['grav_multiplier']*args.curriculum_increments) if 'grav_multiplier' in args.env_config else 0,
         )
     )
 
@@ -185,6 +194,13 @@ if (args.lr_half_life): # Default to exponential lr decay
             )
         ]
     )
+    
+# Creating recordings
+if (args.render_every > 0):
+    callbacks.append(functools.partial(
+            RenderCallback,
+            render_every=args.render_every
+        ))
 
 # Add spec
 config.rl_module(
@@ -192,6 +208,8 @@ config.rl_module(
         rl_module_specs=specs
     ),
 )
+# Add callbacks
+config.callbacks(callbacks)
 
 # Set the stopping arguments.
 EPISODE_RETURN_MEAN_KEY = f"{ENV_RUNNER_RESULTS}/{EPISODE_RETURN_MEAN}"

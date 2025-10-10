@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 import os
@@ -28,12 +29,16 @@ if TYPE_CHECKING:
 
 PROJECT_PATH = Path(__file__).parent
 
-# python hyperparameter_search.py --num-env-runners=2 --num-concurrent=5 --stop-threshold=1.5
+# python hyperparameter_search.py --num-env-runners=2 --num-concurrent=5 --stop-threshold=1.0
+# python hyperparameter_search.py --num-env-runners=5 --num-concurrent=10 --time-budget=5.0
+
+# python hyperparameter_opt/hyperparameter_analysis.py --experiment-name "Test_Hyperparameter_Search"
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--num-env-runners", type=int, default=2) # Per-trial, not total
 parser.add_argument("--num-concurrent", type=int, default=5) # Per-trial, not total
-parser.add_argument("--stop-threshold", type=float, default=0.99)
+parser.add_argument("--stop-threshold", type=float, default=float('inf'))
+parser.add_argument("--time-budget", type=float, default=1.5) # In hours, total
 args = parser.parse_args()
 
 """
@@ -43,16 +48,14 @@ compared to prune under-performing trials.
 """
 
 experiment_name = f'Test_Hyperparameter_Search'
-max_iter_individual = 300
-max_time_total = 60 * 90
-grace_period_iter = 15
-
-#ray.init()
+max_iter_individual = 50
+max_time_total = int(3600 * args.time_budget)
+grace_period_iter = 7
 
 # Register our Environment and Create the Config Object
 target_env = SW_1v1_env_singleplayer
 register_env("env", lambda cfg: target_env(cfg))
-env_cfg = {"speed": 5.0, "ep_length": 4096, 'grav_multiplier': 0.0}
+env_cfg = {"speed": 5.0, "ep_length": 4096, 'grav_multiplier': 0.1, 'egocentric':True}
 module_id = 'my_policy'
 env = target_env() # sample
 agent_id = env.agents[0]
@@ -62,7 +65,7 @@ act_space = env.action_spaces[agent_id]
 config = (
     PPOConfig()
     .reporting(
-        metrics_num_episodes_for_smoothing=1000
+        metrics_num_episodes_for_smoothing=10000
     )
     .environment(
         env='env',
@@ -95,12 +98,12 @@ config = (
     )
     .training(
         minibatch_size=tune.choice([512, 1024, 2048, 4096]),
-        train_batch_size=tune.sample_from(
-            lambda spec: spec.config["minibatch_size"] * args.num_env_runners
-        ),
+        train_batch_size=32768, #tune.sample_from(
+        #    lambda spec: spec.config["minibatch_size"] * args.num_env_runners
+        #),
         
-        lr=tune.loguniform(1e-5, 1e-2),
-        gamma=tune.uniform(0.80, 0.99),
+        lr=tune.loguniform(1e-5, 1e-3),
+        gamma=tune.uniform(0.95, 0.99),
         lambda_=tune.uniform(0.97, 1.0),
         clip_param=tune.uniform(0.1, 0.3),
         grad_clip=tune.choice([None, 40, 100, 200]),
@@ -111,17 +114,14 @@ config = (
         
         vf_clip_param=tune.choice([10.0, 40.0, float("inf")]),
         vf_loss_coeff=tune.uniform(0.01, 1.0),
-        vf_share_layers=tune.choice([True, False]),
+        vf_share_layers=False,
         
         learner_class=BatchedCriticPPOLearner,
-        learner_config_dict={'critic_batch_size': tune.sample_from( 
-            # Not a meaningful hyperparameter; batches critic preprocessing. Set to same as batch size
-            lambda spec: spec.config["minibatch_size"] * args.num_env_runners
-        )},
+        learner_config_dict={'critic_batch_size': 32768},
     )
     .learners(
         num_learners=0,
-        num_gpus_per_learner=0.2,
+        num_gpus_per_learner=1.0/args.num_concurrent,
     )
     .env_runners(
         num_env_runners=args.num_env_runners,
@@ -164,9 +164,13 @@ config_tuner = tune.TuneConfig(
         max_concurrent=args.num_concurrent,
     ),
     scheduler=ASHAScheduler(
-        time_attr="training_iterations",
+        # Removes lowest 75% (by default) of performers at a number of cutoffs generated based on 
+        # min and max time. At each time cutoff, reward is recorded.
+        # 5, 20, 80 if max rungs = 3, min_t = 5, max_t = 300, rf = 4
+        time_attr="training_iteration", # This is the issue! time_attr isn't showing up in results.
         grace_period=grace_period_iter, # Don't stop trials before this point
         max_t=max_iter_individual,      # Stop trials after this point, no matter what
+        reduction_factor=2,             # Reduce by this factor at each milestone (a function of min/max t)
     ),
     num_samples=-1,
     time_budget_s=max_time_total,       # Timeout for all trials

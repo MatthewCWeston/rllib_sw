@@ -11,3 +11,6 @@ aiohttp_cors
 torch
 pygame
 wandb
+# Video recording
+opencv-python
+moviepy

@@ -1,0 +1,7 @@
+# Needed for hyperparameter search
+networkx==3.2.1
+hyperopt
+pandas==2.2.3
+
+#onnx
+#onnxruntime

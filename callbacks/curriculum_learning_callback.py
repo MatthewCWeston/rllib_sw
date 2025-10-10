@@ -27,11 +27,13 @@ class CurriculumLearningCallback(RLlibCallback):
         promotion_threshold: float = 1.0,
         promotion_patience: int = 2,
         num_increments: int = 10,
+        start_increment: int = 0,
     ):
         self.env_config = env_config.copy() # Adjust gravity here
         self.promotion_threshold = promotion_threshold
         self.promotion_patience = promotion_patience
         self.num_increments = num_increments
+        self.start_increment = start_increment
         
     def on_algorithm_init(
         self,
@@ -40,8 +42,8 @@ class CurriculumLearningCallback(RLlibCallback):
         **kwargs,
     ) -> None:
         # Set the initial task to 0.
-        algorithm.metrics.log_value("current_env_task", 0, reduce="sum")
-        algorithm.metrics.log_value("promotion_cycles", 0, reduce="sum")
+        algorithm.metrics.log_value("current_env_task", self.start_increment, reduce="sum", window=1)
+        algorithm.metrics.log_value("promotion_cycles", 0, reduce="sum", window=1)
         
     def promote(self, algorithm, current_task, metrics_logger):
         next_task = current_task + 1.0
@@ -49,7 +51,7 @@ class CurriculumLearningCallback(RLlibCallback):
         print(f"Switching task on all EnvRunners up to #{next_task}/{self.num_increments}; {self.env_config}")
         # Increase task.
         algorithm.env_runner_group.foreach_env_runner(
-            func=functools.partial(_remote_fn, config=self.env_config)
+            func=partial(_remote_fn, config=self.env_config)
         )
         metrics_logger.log_value("current_env_task", next_task, window=1)
 
@@ -77,13 +79,14 @@ class CurriculumLearningCallback(RLlibCallback):
         # Check promotion (increasing task).
         if (current_return > self.promotion_threshold):
             cycles_waited = metrics_logger.peek("promotion_cycles")
-            if (patience > self.promotion_patience):
+            if (cycles_waited > self.promotion_patience):
                 self.promote(algorithm, current_task, metrics_logger)
+                metrics_logger.log_value("promotion_cycles", 0, window=1) # Reset the counter for next promotion
             else:
-                metrics_logger.log_value("promotion_cycles", current_task+1, window=1)
-                print(f"Waiting until {self.promotion_patience} for promotion: {current_task}")
+                metrics_logger.log_value("promotion_cycles", cycles_waited+1, window=1)
+                print(f"Waiting until {self.promotion_patience} for promotion: {cycles_waited}")
         else:
-            metrics_logger.log_value("promotion_cycles", 0, window=1) # Reset, in case we got lucky before
+            metrics_logger.log_value("promotion_cycles", 0, window=1) # Reset, it was a fluke.
                 
             
                 
