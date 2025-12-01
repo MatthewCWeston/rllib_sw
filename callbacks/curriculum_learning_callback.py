@@ -44,9 +44,10 @@ class CurriculumLearningCallback(RLlibCallback):
         # Set the initial task to 0.
         algorithm.metrics.log_value("current_env_task", self.start_increment, reduce="sum", window=1)
         algorithm.metrics.log_value("promotion_cycles", 0, reduce="sum", window=1)
+        algorithm.metrics.log_value("demotion_cycles", 0, reduce="sum", window=1)
         
-    def promote(self, algorithm, current_task, metrics_logger):
-        next_task = current_task + 1.0
+    def promote(self, algorithm, current_task, metrics_logger, adj=1.0):
+        next_task = current_task + adj
         self.env_config['grav_multiplier'] = next_task / self.num_increments
         print(f"Switching task on all EnvRunners up to #{next_task}/{self.num_increments}; {self.env_config}")
         # Increase task.
@@ -87,6 +88,14 @@ class CurriculumLearningCallback(RLlibCallback):
                 print(f"Waiting until {self.promotion_patience} for promotion: {cycles_waited}")
         else:
             metrics_logger.log_value("promotion_cycles", 0, window=1) # Reset, it was a fluke.
+            if (current_task > self.start_increment): # Check demotion if possible to demote 
+                cycles_waited = metrics_logger.peek("demotion_cycles")
+                if (cycles_waited > self.promotion_patience):
+                    self.promote(algorithm, current_task, metrics_logger, adj=-1.0) # Go back down
+                    metrics_logger.log_value("demotion_cycles", 0, window=1) # Reset the counter for next promotion
+                else:
+                    metrics_logger.log_value("demotion_cycles", cycles_waited+1, window=1)
+                    print(f"Waiting until {self.promotion_patience} for demotion: {cycles_waited}")
                 
             
                 
