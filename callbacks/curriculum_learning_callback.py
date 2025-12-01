@@ -42,9 +42,9 @@ class CurriculumLearningCallback(RLlibCallback):
         **kwargs,
     ) -> None:
         # Set the initial task to 0.
-        algorithm.metrics.log_value("current_env_task", self.start_increment, reduce="sum", window=1)
-        algorithm.metrics.log_value("promotion_cycles", 0, reduce="sum", window=1)
-        algorithm.metrics.log_value("demotion_cycles", 0, reduce="sum", window=1)
+        algorithm.metrics.log_value("current_env_task", self.start_increment, window=1)
+        algorithm.metrics.log_value("promotion_cycles", 0, window=1)
+        algorithm.metrics.log_value("demotion_cycles", 0, window=1)
         
     def promote(self, algorithm, current_task, metrics_logger, adj=1.0):
         next_task = current_task + adj
