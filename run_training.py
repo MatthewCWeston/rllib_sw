@@ -24,6 +24,7 @@ from ray.rllib.utils.test_utils import (
 from ray.rllib.utils.metrics import (
     ENV_RUNNER_RESULTS,
     EPISODE_RETURN_MEAN,
+    EPISODE_RETURN_MIN,
     TRAINING_ITERATION_TIMER,
     NUM_ENV_STEPS_SAMPLED_LIFETIME,
 )
@@ -57,10 +58,11 @@ parser.add_argument("--env-name", type=str)
 parser.add_argument("--no-custom-arch", action='store_true') # Don't use the attention-based encoder.
 parser.add_argument("--use-lstm", action='store_true') # Use an LSTM (default arch only for now)
 parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivation
-parser.add_argument("--curriculum", action='store_true') # Use curriculum learning
+parser.add_argument("--curriculum", nargs="*",  # Use curriculum learning
+    choices=["grav_multiplier", "size_multiplier"], default=[])
 parser.add_argument("--curriculum-increments", type=int, default=10) # Rate to phase in gravity
 parser.add_argument("--curriculum-patience", type=int, default=10) # Episodes over threshold b4 promotion
-parser.add_argument("--curriculum-threshold", type=float, default=1.1) # Reward at which to promote
+parser.add_argument("--curriculum-score-threshold", type=float, default=1.1) # Threshold to promote size
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 parser.add_argument("--lr", type=float, default=1e-6) 
 parser.add_argument("--lr-half-life", type=float) # Epochs for LR to halve, for exponential decay
@@ -169,16 +171,21 @@ if (args.curiosity):
     add_curiosity(config, specs)
     
 # Curriculum Learning
-if (args.curriculum):
+if (len(args.curriculum)>0):
     print('Using curriculum learning')
     callbacks.append(
         functools.partial(
             CurriculumLearningCallback,
+            attributes=args.curriculum,
             env_config=args.env_config,
-            promotion_threshold = args.curriculum_threshold,
+            promotion_thresholds={
+                # Reduce target size when above a certain score
+                "size_multiplier": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold), 
+                # Increase gravity when we reliably aren't crashing before achieving anything
+                "grav_multiplier": (EPISODE_RETURN_MIN, 0.0),
+            },
             promotion_patience = args.curriculum_patience,
-            num_increments = 10,
-            start_increment = int(args.env_config['grav_multiplier']*args.curriculum_increments) if 'grav_multiplier' in args.env_config else 0,
+            num_increments = args.curriculum_increments,
         )
     )
 

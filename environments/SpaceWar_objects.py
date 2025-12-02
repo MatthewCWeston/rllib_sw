@@ -54,7 +54,7 @@ class Missile():
         mv = self.vel
         mp += mv * speed # Move missile
         for si in range(len(ships)): # Missile hits target
-            if (np.linalg.norm(mp-ships[si].pos, 2) < PLAYER_SIZE):
+            if (np.linalg.norm(mp-ships[si].pos, 2) < ships[si].size):
                 return si, True
         if (np.linalg.norm(mp, 2) < STAR_SIZE): # Missile hits star
             return -1, True
@@ -84,13 +84,14 @@ class Missile():
 
 class Ship():
     REPR_SIZE = 8
-    def __init__(self, pos, ang):
+    def __init__(self, pos, ang, size=PLAYER_SIZE):
         self.pos = pos
         self.ang = ang
         self.stored_missiles = NUM_MISSILES
         self.vel = np.array([0.,0.])
         self.reloadTime = 0
         self.last_act = [0,0,0]
+        self.size = size
         self.updateAngUV()
     def updateAngUV(self):
         a = self.ang*np.pi/180
@@ -107,7 +108,7 @@ class Ship():
           self.ang -= SHIP_TURN_RATE * speed
         # Shoot 
         if (action[2]==1 and self.stored_missiles > 0 and self.reloadTime <= 0):
-            m = Missile(self.pos + self.angUV * PLAYER_SIZE, 
+            m = Missile(self.pos + self.angUV * self.size, 
                 self.vel + self.angUV * MISSILE_VEL)
             missiles.append(m)
             self.stored_missiles -= 1
@@ -141,8 +142,9 @@ class Ship():
             [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME]
             ])
     def render(self, draw,
-                dim, hdim, psz, ssz, terminated, ego=None):
+                dim, hdim, ssz, terminated, ego=None):
         ''' Render this object using draw, adjust for ego if needed.'''
+        psz = self.size * dim
         if (ego is None):
             pos, vel, auv = self.pos, self.vel, self.angUV
             ang = self.ang

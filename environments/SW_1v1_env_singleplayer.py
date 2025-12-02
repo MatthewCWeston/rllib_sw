@@ -19,7 +19,8 @@ class Dummy_Ship(Ship):
             pos = ego_pt(self.pos, ego)
         # pos, vel, angle unit vector, ammo remaining
         return np.concatenate([pos, np.zeros((Ship.REPR_SIZE-2,))])
-    def render(self, draw, hdim, psz, ego=None):
+    def render(self, draw, hdim, ego=None):
+        psz = self.size * hdim*2
         if (ego is None):
             pos = self.pos
         else:
@@ -48,7 +49,10 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.maxTime = env_config['ep_length'] if 'ep_length' in env_config else DEFAULT_MAX_TIME
         self.speed = env_config['speed'] if 'speed' in env_config else 1.0
         self.size = env_config['render_size'] if 'render_size' in env_config else DEFAULT_RENDER_SIZE
+        # Gravity multiplier for curriculum learning
         self.grav_multiplier = env_config['grav_multiplier'] if 'grav_multiplier' in env_config else 1.0
+        # Target size multiplier for curriculum learning
+        self.size_multiplier = env_config['size_multiplier'] if 'size_multiplier' in env_config else 1.0
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
     def get_obs(self):
@@ -74,7 +78,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
     def reset(self, seed=None, options={}):
         self.playerShips = [
             Ship(np.array([-.5, .5]), 90.),
-            Dummy_Ship(np.array([0.,0.]),0.)
+            Dummy_Ship(np.array([0.,0.]),0.,PLAYER_SIZE*self.size_multiplier)
         ]
         self.new_target_position()
         self.missiles = [] # x, y, vx, vy
@@ -108,7 +112,6 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         ego = self.playerShips[0] if self.egocentric else None
         dim = self.size
         hdim=dim/2
-        psz = PLAYER_SIZE * dim
         ssz = STAR_SIZE * dim
         msz = 3
         img = Image.new('RGB', (dim, dim), color='black')
@@ -124,10 +127,10 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             draw.rectangle((rs,rs,dim-rs,dim-rs), outline='white')
         # Draw the player
         ship = self.playerShips[0]
-        ship.render(draw, dim, hdim, psz, ssz, self.terminated, ego=ego)
+        ship.render(draw, dim, hdim, ssz, self.terminated, ego=ego)
         # Draw the target
         target = self.playerShips[1]
-        target.render(draw, hdim, psz, ego)
+        target.render(draw, hdim, ego)
         # Draw the missiles
         for m in self.missiles:
             m.render(draw, hdim, msz, self.speed, ego=ego)

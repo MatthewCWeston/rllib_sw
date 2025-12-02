@@ -21,19 +21,26 @@ class CurriculumLearningCallback(RLlibCallback):
          - After this, escalate to orbiting targets
          - Finally, escalate to targets that rotate towards the player while constantly shooting
     """
+    
     def __init__(
         self,
         env_config: dict,
-        promotion_threshold: float = 1.0,
+        attributes: list,
+        promotion_thresholds: dict, # name -> (results_key, threshold_value)
         promotion_patience: int = 2,
         num_increments: int = 10,
-        start_increment: int = 0,
     ):
         self.env_config = env_config.copy() # Adjust gravity here
-        self.promotion_threshold = promotion_threshold
+        self.promotion_thresholds = promotion_thresholds
         self.promotion_patience = promotion_patience
         self.num_increments = num_increments
-        self.start_increment = start_increment
+        # name -> (start, increment)
+        ATTRS_FINAL = {"grav_multiplier": 1.0, "size_multiplier": 1.0}
+        self.attribute_dict = { # Start from [0], increment by [1] at each step
+            n: (env_config[n], (ATTRS_FINAL[n]-env_config[n])/num_increments) for n in attributes
+        }
+        print("Curriculum learning:")
+        print(self.attribute_dict)
         
     def on_algorithm_init(
         self,
@@ -42,19 +49,17 @@ class CurriculumLearningCallback(RLlibCallback):
         **kwargs,
     ) -> None:
         # Set the initial task to 0.
-        algorithm.metrics.log_value("current_env_task", self.start_increment, window=1)
-        algorithm.metrics.log_value("promotion_cycles", 0, window=1)
-        algorithm.metrics.log_value("demotion_cycles", 0, window=1)
+        for k in self.attribute_dict.keys():
+            algorithm.metrics.log_value(f"{k}_current_env_task", 0, window=1)
+            algorithm.metrics.log_value(f"{k}_promotion_cycles", 0, window=1)
+            algorithm.metrics.log_value(f"{k}_demotion_cycles", 0, window=1)
         
-    def promote(self, algorithm, current_task, metrics_logger, adj=1.0):
+    def promote(self, k, algorithm, current_task, metrics_logger, adj=1.0):
         next_task = current_task + adj
-        self.env_config['grav_multiplier'] = next_task / self.num_increments
-        print(f"Switching task on all EnvRunners up to #{next_task}/{self.num_increments}; {self.env_config}")
-        # Increase task.
-        algorithm.env_runner_group.foreach_env_runner(
-            func=partial(_remote_fn, config=self.env_config)
-        )
-        metrics_logger.log_value("current_env_task", next_task, window=1)
+        base, increment = self.attribute_dict[k]
+        self.env_config[k] = base + next_task*increment
+        print(f"Switching {k} task on all EnvRunners up to {self.env_config[k]:.2f}; {self.env_config}")
+        metrics_logger.log_value(f"{k}_current_env_task", next_task, window=1)
 
     def on_train_result(
         self,
@@ -64,38 +69,49 @@ class CurriculumLearningCallback(RLlibCallback):
         result: dict,
         **kwargs,
     ) -> None:
-        # Store the current task inside the metrics logger in our Algorithm.
-        current_task = metrics_logger.peek("current_env_task")
-        if (current_task==self.num_increments):
-            return # Gravity at maximum
+        promoted = False
+        for k in self.attribute_dict.keys():
+            p_cycles = f"{k}_promotion_cycles"
+            d_cycles = f"{k}_demotion_cycles"
+            pt_key, pt_val = self.promotion_thresholds[k]
+            # Store the current task inside the metrics logger in our Algorithm.
+            current_task = metrics_logger.peek(f"{k}_current_env_task")
+            if (current_task==self.num_increments):
+                return # Gravity at maximum
 
-        # Note, in the first callback executions there may be no completed episode
-        # (and therefore no episode return) reported. In this case we will skip the
-        # the logic to manage task difficulty.
-        if EPISODE_RETURN_MEAN in result[ENV_RUNNER_RESULTS]:
-            current_return = result[ENV_RUNNER_RESULTS][EPISODE_RETURN_MEAN]
-        else:
-            return
-
-        # Check promotion (increasing task).
-        if (current_return > self.promotion_threshold):
-            cycles_waited = metrics_logger.peek("promotion_cycles")
-            if (cycles_waited > self.promotion_patience):
-                self.promote(algorithm, current_task, metrics_logger)
-                metrics_logger.log_value("promotion_cycles", 0, window=1) # Reset the counter for next promotion
+            # Note, in the first callback executions there may be no completed episode
+            # (and therefore no episode return) reported. In this case we will skip the
+            # the logic to manage task difficulty.
+            if pt_key in result[ENV_RUNNER_RESULTS]:
+                current_return = result[ENV_RUNNER_RESULTS][pt_key]
             else:
-                metrics_logger.log_value("promotion_cycles", cycles_waited+1, window=1)
-                print(f"Waiting until {self.promotion_patience} for promotion: {cycles_waited}")
-        else:
-            metrics_logger.log_value("promotion_cycles", 0, window=1) # Reset, it was a fluke.
-            if (current_task > self.start_increment): # Check demotion if possible to demote 
-                cycles_waited = metrics_logger.peek("demotion_cycles")
+                return
+
+            # Check promotion (increasing task).
+            if (current_return >= pt_val):
+                cycles_waited = metrics_logger.peek(p_cycles)
                 if (cycles_waited > self.promotion_patience):
-                    self.promote(algorithm, current_task, metrics_logger, adj=-1.0) # Go back down
-                    metrics_logger.log_value("demotion_cycles", 0, window=1) # Reset the counter for next promotion
+                    promoted = True
+                    self.promote(k, algorithm, current_task, metrics_logger)
+                    metrics_logger.log_value(p_cycles, 0, window=1) # Reset the counter for next promotion
                 else:
-                    metrics_logger.log_value("demotion_cycles", cycles_waited+1, window=1)
-                    print(f"Waiting until {self.promotion_patience} for demotion: {cycles_waited}")
-                
+                    metrics_logger.log_value(p_cycles, cycles_waited+1, window=1)
+                    print(f"{k}: Waiting until {self.promotion_patience} for promotion: {cycles_waited}")
+            else:
+                metrics_logger.log_value(p_cycles, 0, window=1) # Reset, it was a fluke.
+                if (current_task > 0): # Check demotion if possible to demote 
+                    cycles_waited = metrics_logger.peek(d_cycles)
+                    if (cycles_waited > self.promotion_patience):
+                        promoted = True
+                        self.promote(k, algorithm, current_task, metrics_logger, adj=-1.0) # Go back down
+                        metrics_logger.log_value(d_cycles, 0, window=1) # Reset the counter for next promotion
+                    else:
+                        metrics_logger.log_value(d_cycles, cycles_waited+1, window=1)
+                        print(f"{k}: Waiting until {self.promotion_patience} for demotion: {cycles_waited}")
+        if (promoted):
+            # Send updated config to envrunners
+            algorithm.env_runner_group.foreach_env_runner(
+                func=partial(_remote_fn, config=self.env_config)
+            )
             
                 
