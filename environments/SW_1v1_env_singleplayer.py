@@ -51,8 +51,8 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.size = env_config['render_size'] if 'render_size' in env_config else DEFAULT_RENDER_SIZE
         # Gravity multiplier for curriculum learning
         self.grav_multiplier = env_config['grav_multiplier'] if 'grav_multiplier' in env_config else 1.0
-        # Target size multiplier for curriculum learning
-        self.size_multiplier = env_config['size_multiplier'] if 'size_multiplier' in env_config else 1.0
+        # Target size multiplier for curriculum learning (multiply radius to scale area linearly)
+        self.size_multiplier = env_config['size_multiplier']**.5 if 'size_multiplier' in env_config else 1.0
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
     def get_obs(self):

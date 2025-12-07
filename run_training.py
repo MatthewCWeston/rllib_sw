@@ -67,8 +67,8 @@ parser.add_argument("--share-layers", action='store_true') # Only applies to cus
 parser.add_argument("--lr", type=float, default=1e-6) 
 parser.add_argument("--lr-half-life", type=float) # Epochs for LR to halve, for exponential decay
 parser.add_argument("--vf-clip", type=str, default='40.0')
-parser.add_argument("--gamma", type=float, default=.99) # Reward discount over time
-parser.add_argument("--lambda_", type=float, default=0.9) # Bootstrapping ratio (lower=more bootstrapped)
+parser.add_argument("--gamma", type=float, default=.999) # Reward discount over time
+parser.add_argument("--lambda_", type=float, default=0.8) # Bootstrapping ratio (lower=more bootstrapped)
 parser.add_argument("--attn-dim", type=int, default=128) # Encoder dimensionality
 parser.add_argument("--attn-ff-dim", type=int, default=2048) # Feedforward component of attention layers
 parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively run our attention layer
