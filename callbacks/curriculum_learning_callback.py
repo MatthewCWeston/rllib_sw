@@ -99,17 +99,22 @@ class CurriculumLearningCallback(RLlibCallback):
                 else:
                     metrics_logger.log_value(p_cycles, cycles_waited+1, window=1)
                     print(f"{k}: Waiting until {self.promotion_patience} for promotion: {cycles_waited}")
-            elif (self.allow_demotions):
+            else:
                 metrics_logger.log_value(p_cycles, 0, window=1) # Reset, it was a fluke.
-                if (current_task > 0): # Check demotion if possible to demote 
-                    cycles_waited = metrics_logger.peek(d_cycles)
-                    if (cycles_waited > self.promotion_patience):
-                        promoted = True
-                        self.promote(k, algorithm, current_task, metrics_logger, adj=-1.0) # Go back down
-                        metrics_logger.log_value(d_cycles, 0, window=1) # Reset the counter for next promotion
-                    else:
-                        metrics_logger.log_value(d_cycles, cycles_waited+1, window=1)
-                        print(f"{k}: Waiting until {self.promotion_patience} for demotion: {cycles_waited}")
+            # Check demotion, if allowed
+            if (self.allow_demotions):
+                if (current_return < pt_val):
+                    if (current_task > 0): # Check demotion if possible to demote 
+                        cycles_waited = metrics_logger.peek(d_cycles)
+                        if (cycles_waited > self.promotion_patience):
+                            promoted = True
+                            self.promote(k, algorithm, current_task, metrics_logger, adj=-1.0) # Go back down
+                            metrics_logger.log_value(d_cycles, 0, window=1) # Reset the counter for next promotion
+                        else:
+                            metrics_logger.log_value(d_cycles, cycles_waited+1, window=1)
+                            print(f"{k}: Waiting until {self.promotion_patience} for demotion: {cycles_waited}")
+                else:
+                    metrics_logger.log_value(d_cycles, 0, window=1) # Reset demotion cycles
         if (promoted):
             # Send updated config to envrunners
             algorithm.env_runner_group.foreach_env_runner(
