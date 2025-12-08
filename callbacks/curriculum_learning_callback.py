@@ -29,11 +29,13 @@ class CurriculumLearningCallback(RLlibCallback):
         promotion_thresholds: dict, # name -> (results_key, threshold_value)
         promotion_patience: int = 2,
         num_increments: int = 10,
+        allow_demotions: bool = False,
     ):
         self.env_config = env_config.copy() # Adjust gravity here
         self.promotion_thresholds = promotion_thresholds
         self.promotion_patience = promotion_patience
         self.num_increments = num_increments
+        self.allow_demotions = allow_demotions
         # name -> (start, increment)
         ATTRS_FINAL = {"grav_multiplier": 1.0, "size_multiplier": 1.0}
         self.attribute_dict = { # Start from [0], increment by [1] at each step
@@ -97,7 +99,7 @@ class CurriculumLearningCallback(RLlibCallback):
                 else:
                     metrics_logger.log_value(p_cycles, cycles_waited+1, window=1)
                     print(f"{k}: Waiting until {self.promotion_patience} for promotion: {cycles_waited}")
-            else:
+            elif (self.allow_demotions):
                 metrics_logger.log_value(p_cycles, 0, window=1) # Reset, it was a fluke.
                 if (current_task > 0): # Check demotion if possible to demote 
                     cycles_waited = metrics_logger.peek(d_cycles)

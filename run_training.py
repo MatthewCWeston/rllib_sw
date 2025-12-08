@@ -63,6 +63,7 @@ parser.add_argument("--curriculum", nargs="*",  # Use curriculum learning
 parser.add_argument("--curriculum-increments", type=int, default=10) # Rate to phase in gravity
 parser.add_argument("--curriculum-patience", type=int, default=10) # Episodes over threshold b4 promotion
 parser.add_argument("--curriculum-score-threshold", type=float, default=1.1) # Threshold to promote size
+parser.add_argument("--curriculum-allow-demotions", action='store_true') # Threshold to promote size
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 parser.add_argument("--lr", type=float, default=1e-6) 
 parser.add_argument("--lr-half-life", type=float) # Epochs for LR to halve, for exponential decay
@@ -187,6 +188,7 @@ if (len(args.curriculum)>0):
             },
             promotion_patience = args.curriculum_patience,
             num_increments = args.curriculum_increments,
+            allow_demotions = args.curriculum_allow_demotions,
         )
     )
 
