@@ -9,17 +9,50 @@ import pygame
 from classes.repeated_space import RepeatedCustom
 
 from environments.SpaceWar_constants import *
-from environments.SpaceWar_objects import Missile, Ship, ego_pt
+from environments.SpaceWar_objects import Missile, Ship, ego_pt, wrap
       
 class Dummy_Ship(Ship):
+    def update(self, missiles, speed, grav_multiplier, target_loc):
+        self.updateAngUV()
+        if (self.stored_missiles > 0):
+            # Rotate towards player
+            vec_diff = target_loc-self.pos
+            ang_diff = (np.arctan2(-vec_diff[1],vec_diff[0]) * 180/np.pi - self.ang)%360
+            if (ang_diff > 180): 
+                action = 2 # turn left; positive angle greather than pi
+            elif (ang_diff < -180):
+                action = 1 # turn right; negative angle less than -pi
+            elif (ang_diff > 0):
+                action = 1 # turn right; positive angle less than pi
+            else:
+                action = 2
+            if (action==1):
+              self.ang += SHIP_TURN_RATE * speed
+            elif (action==2):
+              self.ang -= SHIP_TURN_RATE * speed
+            # Shoot
+            if (self.stored_missiles > 0 and self.reloadTime <= 0):
+                m = Missile(self.pos + self.angUV * self.size, self.vel + self.angUV * MISSILE_VEL)
+                missiles.append(m)
+                self.stored_missiles -= 1
+                self.reloadTime = MISSILE_RELOAD_TIME
+            else:
+                self.reloadTime =  max(self.reloadTime-speed,0)
+        # Update position
+        self.pos += self.vel * speed
+        self.vel = np.clip(self.vel, -1.0, 1.0)
+        wrap(self.pos)
+        # Apply force of gravity. GMm can be treated as a single constant.
+        self.vel -= (self.pos * GRAV_CONST / (self.pos[0]**2 + self.pos[1]**2)** 1.5) * speed * grav_multiplier
     def get_obs(self, ego=None):
         if (ego is None):
             pos = self.pos
         else:
             pos = ego_pt(self.pos, ego)
         # pos, vel, angle unit vector, ammo remaining
-        return np.concatenate([pos, np.zeros((Ship.REPR_SIZE-2,))])
+        return np.concatenate([pos, np.zeros((Ship.REPR_SIZE-2,))]) 
     def render(self, draw, hdim, ego=None):
+        super().render(draw, hdim*2, hdim, self.size, False, ego=ego)
         psz = self.size * hdim*2
         if (ego is None):
             pos = self.pos
@@ -27,6 +60,10 @@ class Dummy_Ship(Ship):
             pos = self.get_obs(ego=ego)[:2]
         p = (pos+1) * hdim
         draw.ellipse((p[0]-psz/2, p[1]-psz/2, p[0]+psz/2, p[1]+psz/2), outline='yellow')
+        if ((self.vel!=0).any()):
+            vel = self.vel * psz*hdim*5
+            draw.line([p[0],p[1], p[0]+vel[0],p[1]+vel[1]], width=1, fill='cyan')
+            draw.line([p[0],p[1], hdim,hdim], width=1, fill='green')
 
 class SW_1v1_env_singleplayer(MultiAgentEnv):
     def __init__(self, env_config={}):
@@ -54,8 +91,13 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.grav_multiplier = env_config['grav_multiplier'] if 'grav_multiplier' in env_config else 1.0
         # Target size multiplier for curriculum learning (multiply radius to scale area linearly)
         self.size_multiplier = env_config['size_multiplier'] if 'size_multiplier' in env_config else 1.0
+        # Target speed multiplier. A proportion of the stable orbital velocity
+        self.target_speed = env_config['target_speed'] if 'target_speed' in env_config else 0.0
+        self.target_ammo = env_config['target_ammo'] if 'target_ammo' in env_config else 0.0
+        # Rendering
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
+        
     def get_obs(self):
         ego = self.playerShips[0] if self.egocentric else None
         return {0: {
@@ -74,7 +116,16 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 
     def new_target_position(self):
         position = np.random.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
-        self.playerShips[1].pos = position
+        target = self.playerShips[1]
+        target.pos = position
+        target.stored_missiles = int(NUM_MISSILES * self.target_ammo)
+        if (self.target_speed != 0): # Set velocity (perpendicular to angle to star)
+            r = (position[0]**2 + position[1]**2)**.5
+            g = GRAV_CONST / (target.pos[0]**2 + position[1]**2)
+            v_magnitude = (g*r)**.5
+            v_magnitude *= self.target_speed
+            v_angle = np.arctan2(position[1],position[0]) + np.pi/2 * np.sign(np.random.rand()-0.5)
+            target.vel = np.array([np.cos(v_angle), np.sin(v_angle)]) * v_magnitude
     
     def reset(self, seed=None, options={}):
         self.playerShips = [
@@ -86,6 +137,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.time = 0
         self.terminated = False # for rendering purposes
         return self.get_obs(), {}
+        
     def step(self, actions):
         self.rewards = {0:0}
         self.time += 1 * self.speed
@@ -95,6 +147,13 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE + STAR_SIZE):
             self.terminated = True;
             self.rewards[0] = -1
+        # Update the dummy ship
+        if ((self.target_speed != 0) or (target.stored_missiles != 0)):
+            self.playerShips[1].update(self.missiles, self.speed, 
+                grav_multiplier=self.grav_multiplier*self.target_speed, target_loc=ship.pos)
+            if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE + STAR_SIZE):
+                self.new_target_position() # If it crashes, respawn it
+                # Later, maybe have targets that spawn outside the radius try to avoid the star and snipe?
         # Update missiles
         for i in reversed(range(len(self.missiles))):
             si,d = self.missiles[i].update(self.playerShips, self.speed) # Return hit_obj
@@ -109,6 +168,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                     self.new_target_position()
         truncated = (self.time >= self.maxTime)
         return self.get_obs(), self.rewards, {"__all__": self.terminated}, {"__all__": truncated}, {}
+        
     def render(self): # Display the environment state
         ego = self.playerShips[0] if self.render_egocentric else None
         dim = self.size
