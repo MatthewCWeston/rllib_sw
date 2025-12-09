@@ -79,8 +79,9 @@ class Missile():
         m = (pos+1) * hdim
         draw.ellipse((m[0]-sz/2, m[1]-sz/2, m[0]+sz/2, m[1]+sz/2), outline='yellow', fill='yellow')
         # Draw a cyan line indicating velocity 
-        v = vel*msz*hdim*3
-        draw.line([m[0],m[1], m[0]+v[0],m[1]+v[1]], width=1, fill='cyan')
+        if (ego is not None):
+            v = vel*msz*hdim*3
+            draw.line([m[0],m[1], m[0]+v[0],m[1]+v[1]], width=1, fill='cyan')
 
 class Ship():
     REPR_SIZE = 8
@@ -205,10 +206,11 @@ class Ship():
         draw.line([(x, y), (x+bar_len*self.stored_missiles/NUM_MISSILES, y)], width=1, fill='white')
         y+=2
         draw.line([(x, y), (x+bar_len*max(0,self.reloadTime)/MISSILE_RELOAD_TIME, y)], width=1, fill='yellow')
-        # Draw an orange line indicating angle unit vector 
-        if (ego is not self):
-            auv = auv*psz
-            draw.line([p[0],p[1], p[0]+auv[0],p[1]+auv[1]], width=1, fill='orange')
-        # Draw a cyan line indicating velocity
-        vel = vel * psz*dim*2
-        draw.line([p[0],p[1], p[0]+vel[0],p[1]+vel[1]], width=1, fill='cyan')
+        if (ego is not None):
+            # Draw an orange line indicating angle unit vector 
+            if (ego is not self):
+                auv = auv*psz
+                draw.line([p[0],p[1], p[0]+auv[0],p[1]+auv[1]], width=1, fill='orange')
+            # Draw a cyan line indicating velocity
+            vel = vel * psz*dim*2
+            draw.line([p[0],p[1], p[0]+vel[0],p[1]+vel[1]], width=1, fill='cyan')

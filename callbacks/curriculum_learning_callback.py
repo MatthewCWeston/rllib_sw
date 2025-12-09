@@ -79,7 +79,7 @@ class CurriculumLearningCallback(RLlibCallback):
             # Store the current task inside the metrics logger in our Algorithm.
             current_task = metrics_logger.peek(f"{k}_current_env_task")
             if (current_task==self.num_increments):
-                return # Gravity at maximum
+                return # Difficulty at maximum
 
             # Note, in the first callback executions there may be no completed episode
             # (and therefore no episode return) reported. In this case we will skip the

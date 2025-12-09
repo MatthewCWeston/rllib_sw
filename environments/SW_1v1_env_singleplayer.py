@@ -46,6 +46,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             "missiles_hostile": self.missile_space # Hostile missiles
         }) for i in range(1)}
         self.egocentric = env_config['egocentric'] if 'egocentric' in env_config else False
+        self.render_egocentric = env_config['render_egocentric'] if 'render_egocentric' in env_config else False
         self.maxTime = env_config['ep_length'] if 'ep_length' in env_config else DEFAULT_MAX_TIME
         self.speed = env_config['speed'] if 'speed' in env_config else 1.0
         self.size = env_config['render_size'] if 'render_size' in env_config else DEFAULT_RENDER_SIZE
@@ -109,7 +110,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         truncated = (self.time >= self.maxTime)
         return self.get_obs(), self.rewards, {"__all__": self.terminated}, {"__all__": truncated}, {}
     def render(self): # Display the environment state
-        ego = self.playerShips[0] if self.egocentric else None
+        ego = self.playerShips[0] if self.render_egocentric else None
         dim = self.size
         hdim=dim/2
         ssz = STAR_SIZE * dim
@@ -117,7 +118,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         img = Image.new('RGB', (dim, dim), color='black')
         draw = ImageDraw.Draw(img)
         # Draw the star (drawn by player ship if egocentric rendering is active)
-        if (self.egocentric==False):
+        if (ego is None):
             for i in range(2):
                 ss = np.random.uniform(-1.0, 1.0, 2) * ssz/2
                 draw.line((hdim+ss[0], hdim+ss[1], hdim-ss[0], hdim-ss[1]), fill='white', width=1)
