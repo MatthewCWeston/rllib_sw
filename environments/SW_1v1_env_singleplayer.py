@@ -94,7 +94,6 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         # Target speed multiplier. A proportion of the stable orbital velocity
         self.target_speed = env_config['target_speed'] if 'target_speed' in env_config else 0.0
         self.target_ammo = env_config['target_ammo'] if 'target_ammo' in env_config else 0.0
-        print(self.target_ammo)
         # Rendering
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
