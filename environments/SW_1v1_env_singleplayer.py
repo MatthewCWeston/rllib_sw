@@ -32,7 +32,7 @@ class Dummy_Ship(Ship):
               self.ang -= SHIP_TURN_RATE * speed
             # Shoot
             if (self.stored_missiles > 0 and self.reloadTime <= 0 
-                and (vec_diff**2).sum()**.5 < MISSILE_LIFE*MISSILE_VEL):
+                and (vec_diff**2).sum()**.5 < MISSILE_LIFE*MISSILE_VEL*1.5):
                 m = Missile(self.pos + self.angUV * self.size, self.vel + self.angUV * MISSILE_VEL)
                 missiles.append(m)
                 self.stored_missiles -= 1
@@ -169,9 +169,10 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             self.rewards[0] = -1
         # Update the dummy ship
         if ((self.target_speed != 0) or (target.stored_missiles != 0)):
-            self.playerShips[1].update(self.opponent_missiles, self.speed, 
+            target = self.playerShips[1]
+            target.update(self.opponent_missiles, self.speed, 
                 grav_multiplier=self.grav_multiplier*self.target_speed, target_loc=ship.pos)
-            if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE + STAR_SIZE):
+            if (np.linalg.norm(target.pos, 2) < PLAYER_SIZE + STAR_SIZE):
                 self.new_target_position() # If it crashes, respawn it
                 # Later, maybe have targets that spawn outside the radius try to avoid the star and snipe?
         # Update missiles
