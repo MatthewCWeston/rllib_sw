@@ -19,7 +19,7 @@ class Dummy_Ship(Ship):
             vec_diff = target_loc-self.pos
             ang_diff = (np.arctan2(-vec_diff[1],vec_diff[0]) * 180/np.pi - self.ang)%360
             if (ang_diff > 180): 
-                action = 2 # turn left; positive angle greather than pi
+                action = 2 # turn left; positive angle greater than pi
             elif (ang_diff < -180):
                 action = 1 # turn right; negative angle less than -pi
             elif (ang_diff > 0):
@@ -119,13 +119,23 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         if (self.target_speed == 0):
             position = np.random.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
         else:
-            valid_position = False
-            while (valid_position==False):
-                r = np.random.uniform(0, WRAP_BOUND)
-                p_ang = np.random.uniform(0, 2*np.pi)
-                position = np.array([np.cos(p_ang), np.sin(p_ang)]) * r
-                # Spawn it somewhere the player isn't
-                valid_position = ((self.target_ammo==0) or ((position-self.playerShips[0].pos)**2).sum()**.5 > MISSILE_LIFE*MISSILE_VEL*1.5)
+            position = np.random.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
+            r = np.random.uniform(0, 1)**.5 * WRAP_BOUND
+            p_ang = np.random.uniform(0, 2*np.pi)
+            position = np.array([np.cos(p_ang), np.sin(p_ang)]) * r
+            dist_zero = (position**2).sum()**.5
+            # Spawn it somewhere the player isn't
+            player_pos = self.playerShips[0].pos
+            disp = (position-player_pos)
+            bounds_dist = MISSILE_LIFE*MISSILE_VEL*1.2
+            dist_from_valid = bounds_dist - (disp**2).sum()**.5
+            if (dist_from_valid > 0):
+                # Shunt it the extra distance away
+                position = player_pos + disp / (1 - dist_from_valid / bounds_dist)
+                # wrap it (around a circle) if it exceeds the bounds.
+                pos_r = (position**2).sum()**.5
+                if (pos_r > WRAP_BOUND):
+                    position = position * -(2*WRAP_BOUND-pos_r) / pos_r
             # Set velocity (perpendicular to angle to star)
             g = GRAV_CONST / (position[0]**2 + position[1]**2)
             v_magnitude = (g*r)**.5
@@ -168,7 +178,6 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 grav_multiplier=self.grav_multiplier*self.target_speed, target_loc=ship.pos)
             if (np.linalg.norm(target.pos, 2) < PLAYER_SIZE + STAR_SIZE):
                 self.new_target_position() # If it crashes, respawn it
-                # Later, maybe have targets that spawn outside the radius try to avoid the star and snipe?
         # Update missiles
         ms = [self.missiles, self.opponent_missiles]
         for m in ms:
