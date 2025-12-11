@@ -59,7 +59,7 @@ parser.add_argument("--no-custom-arch", action='store_true') # Don't use the att
 parser.add_argument("--use-lstm", action='store_true') # Use an LSTM (default arch only for now)
 parser.add_argument("--curiosity", action='store_true') # Use intrinsic motivation
 parser.add_argument("--curriculum", nargs="*",  # Use curriculum learning
-    choices=["grav_multiplier", "size_multiplier"], default=[])
+    choices=["grav_multiplier", "size_multiplier", "target_speed", "target_ammo"], default=[])
 parser.add_argument("--curriculum-increments", type=int, default=10) # Rate to phase in gravity
 parser.add_argument("--curriculum-patience", type=int, default=10) # Episodes over threshold b4 promotion
 parser.add_argument("--curriculum-score-threshold", type=float, default=1.1) # Threshold to promote size
@@ -185,6 +185,10 @@ if (len(args.curriculum)>0):
                 "size_multiplier": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold), 
                 # Increase gravity when we reliably aren't crashing before achieving anything
                 "grav_multiplier": (EPISODE_RETURN_MIN, 0.0),
+                # Reduce target speed when above a certain score
+                "target_speed": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold),
+                # Increase target ammo when above a certain score
+                "target_ammo": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold),
             },
             promotion_patience = args.curriculum_patience,
             num_increments = args.curriculum_increments,

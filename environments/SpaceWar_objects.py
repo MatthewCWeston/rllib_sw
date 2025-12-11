@@ -69,7 +69,7 @@ class Missile():
             v = rotate_pt(self.vel, -ego.ang) # Rotate velocity w/r to removing ego's angle
             # rotate relative position by the negative of the angle
             return np.concatenate([p, v, [self.life/self.maxLife]])
-    def render(self, draw, hdim, msz, envspeed, ego=None):
+    def render(self, draw, hdim, msz, envspeed, ego=None, c="yellow"):
         if (ego is None):
             pos, vel = self.pos, self.vel
         else:
@@ -77,7 +77,7 @@ class Missile():
             pos, vel = obs[:2], obs[2:4]
         sz = msz if self.life > envspeed else msz*4
         m = (pos+1) * hdim
-        draw.ellipse((m[0]-sz/2, m[1]-sz/2, m[0]+sz/2, m[1]+sz/2), outline='yellow', fill='yellow')
+        draw.ellipse((m[0]-sz/2, m[1]-sz/2, m[0]+sz/2, m[1]+sz/2), outline=c, fill=c)
         # Draw a cyan line indicating velocity 
         if (ego is not None):
             v = vel*msz*hdim*3

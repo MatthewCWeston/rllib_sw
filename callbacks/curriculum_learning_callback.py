@@ -37,7 +37,8 @@ class CurriculumLearningCallback(RLlibCallback):
         self.num_increments = num_increments
         self.allow_demotions = allow_demotions
         # name -> (start, increment)
-        ATTRS_FINAL = {"grav_multiplier": 1.0, "size_multiplier": 1.0}
+        ATTRS_FINAL = {"grav_multiplier": 1.0, "size_multiplier": 1.0, "target_speed": 1.0,
+            "target_ammo": 1.0}
         self.attribute_dict = { # Start from [0], increment by [1] at each step
             n: (env_config[n], (ATTRS_FINAL[n]-env_config[n])/num_increments) for n in attributes
         }

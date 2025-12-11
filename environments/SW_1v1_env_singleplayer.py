@@ -31,7 +31,8 @@ class Dummy_Ship(Ship):
             elif (action==2):
               self.ang -= SHIP_TURN_RATE * speed
             # Shoot
-            if (self.stored_missiles > 0 and self.reloadTime <= 0):
+            if (self.stored_missiles > 0 and self.reloadTime <= 0 
+                and (vec_diff**2).sum()**.5 < MISSILE_LIFE*MISSILE_VEL):
                 m = Missile(self.pos + self.angUV * self.size, self.vel + self.angUV * MISSILE_VEL)
                 missiles.append(m)
                 self.stored_missiles -= 1
@@ -75,7 +76,6 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         ship_space = Box(-1,1,shape=(Ship.REPR_SIZE,))
         missile_space = Box(-1,1,shape=(Missile.REPR_SIZE,))
         self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
-        self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
         self.observation_spaces = {i: Dict({
             "self": ship_space, # my ship, enemy ship
             "opponent": ship_space,
@@ -104,7 +104,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 "self": self.playerShips[0].get_obs(ego),
                 "opponent": self.playerShips[1].get_obs(ego),
                 "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego) for m in self.missiles]),
-                "missiles_hostile":  self.missile_space.encode_obs([]),
+                "missiles_hostile":  self.missile_space.encode_obs([m.get_obs(ego) for m in self.opponent_missiles]),
               }
             }
     def get_keymap(self): # Set multidiscrete 
@@ -115,17 +115,36 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 }
                 
     def new_target_position(self):
-        position = np.random.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
         target = self.playerShips[1]
-        target.pos = position
-        target.stored_missiles = int(NUM_MISSILES * self.target_ammo)
-        if (self.target_speed != 0): # Set velocity (perpendicular to angle to star)
-            r = (position[0]**2 + position[1]**2)**.5
-            g = GRAV_CONST / (target.pos[0]**2 + position[1]**2)
+        if (self.target_speed == 0):
+            position = np.random.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
+        else:
+            valid_position = False
+            while (valid_position==False):
+                r = np.random.uniform(0, WRAP_BOUND)
+                p_ang = np.random.uniform(0, 2*np.pi)
+                position = np.array([np.cos(p_ang), np.sin(p_ang)]) * r
+                # Spawn it somewhere the player isn't
+                valid_position = ((self.target_ammo==0) or ((position-self.playerShips[0].pos)**2).sum()**.5 > MISSILE_LIFE*MISSILE_VEL*1.5)
+            # Set velocity (perpendicular to angle to star)
+            g = GRAV_CONST / (position[0]**2 + position[1]**2)
             v_magnitude = (g*r)**.5
             v_magnitude *= self.target_speed
             v_angle = np.arctan2(position[1],position[0]) + np.pi/2 * np.sign(np.random.rand()-0.5)
             target.vel = np.array([np.cos(v_angle), np.sin(v_angle)]) * v_magnitude
+        target.pos = position
+        if (self.target_ammo != 0):
+            target.stored_missiles = int(NUM_MISSILES * self.target_ammo)
+            target.ang = np.random.uniform(0,360) # Random initial angle
+            # Don't spawn it facing the player
+            '''vec_diff = position-self.playerShips[0].pos
+            ang_diff = (np.arctan2(-vec_diff[1],vec_diff[0]) * 180/np.pi - target.ang)%360
+            abs_diff, sign_diff = np.abs(ang_diff), np.sign(ang_diff)
+            if (abs_diff < 90):
+               target.ang += 90*np.sign(ang_diff)
+            elif (abs_diff > 270):
+                target.ang -= 90*np.sign(ang_diff)'''
+            target.updateAngUV()
     
     def reset(self, seed=None, options={}):
         self.playerShips = [
@@ -134,6 +153,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         ]
         self.new_target_position()
         self.missiles = [] # x, y, vx, vy
+        self.opponent_missiles = []
         self.time = 0
         self.terminated = False # for rendering purposes
         return self.get_obs(), {}
@@ -149,23 +169,25 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             self.rewards[0] = -1
         # Update the dummy ship
         if ((self.target_speed != 0) or (target.stored_missiles != 0)):
-            self.playerShips[1].update(self.missiles, self.speed, 
+            self.playerShips[1].update(self.opponent_missiles, self.speed, 
                 grav_multiplier=self.grav_multiplier*self.target_speed, target_loc=ship.pos)
             if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE + STAR_SIZE):
                 self.new_target_position() # If it crashes, respawn it
                 # Later, maybe have targets that spawn outside the radius try to avoid the star and snipe?
         # Update missiles
-        for i in reversed(range(len(self.missiles))):
-            si,d = self.missiles[i].update(self.playerShips, self.speed) # Return hit_obj
-            if (d):
-                del self.missiles[i]
-            if (si != -1):
-                if (si == 0):
-                    self.terminated = True
-                    self.rewards[0] = -1
-                else:
-                    self.rewards[0] = 1
-                    self.new_target_position()
+        ms = [self.missiles, self.opponent_missiles]
+        for m in ms:
+            for i in reversed(range(len(m))):
+                si,d = m[i].update(self.playerShips, self.speed) # Return hit_obj
+                if (d):
+                    del m[i]
+                if (si != -1):
+                    if (si == 0):
+                        self.terminated = True
+                        self.rewards[0] = -1
+                    else:
+                        self.rewards[0] = 1
+                        self.new_target_position()
         truncated = (self.time >= self.maxTime)
         return self.get_obs(), self.rewards, {"__all__": self.terminated}, {"__all__": truncated}, {}
         
@@ -195,6 +217,8 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         # Draw the missiles
         for m in self.missiles:
             m.render(draw, hdim, msz, self.speed, ego=ego)
+        for m in self.opponent_missiles:
+            m.render(draw, hdim, msz, self.speed, ego=ego, c="orange")
         # Rotate 90 degrees for easier viewing when using egocentric rendering
         if (self.egocentric):
             img = img.rotate(90)
