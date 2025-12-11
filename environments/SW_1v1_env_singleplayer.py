@@ -94,6 +94,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         # Target speed multiplier. A proportion of the stable orbital velocity
         self.target_speed = env_config['target_speed'] if 'target_speed' in env_config else 0.0
         self.target_ammo = env_config['target_ammo'] if 'target_ammo' in env_config else 0.0
+        print(self.target_ammo)
         # Rendering
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
@@ -137,6 +138,8 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             target.stored_missiles = int(NUM_MISSILES * self.target_ammo)
             target.ang = np.random.uniform(0,360) # Random initial angle
             target.updateAngUV()
+        else:
+            target.stored_missiles = 0
     
     def reset(self, seed=None, options={}):
         self.playerShips = [

@@ -33,7 +33,7 @@ from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.curiosity import add_curiosity
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
-from callbacks.checkpoint_restore_callback import assignRestoreCallback
+from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
 from callbacks.curriculum_learning_callback import CurriculumLearningCallback
 from callbacks.render_callback import RenderCallback
 
@@ -215,6 +215,15 @@ if (args.render_every > 0):
             RenderCallback,
             render_every=args.render_every
         ))
+        
+# Load policy if applicable
+if (args.restore_checkpoint):
+    print(f"Restoring checkpoint: {args.restore_checkpoint}")
+    callbacks.append(functools.partial(
+        LoadOnAlgoInitCallback,
+        ckpt_path=args.restore_checkpoint,
+        module_name=module_id,
+    ))
 
 # Add spec
 config.rl_module(
@@ -231,12 +240,7 @@ stop = {
     TRAINING_ITERATION_TIMER: args.stop_iters,
     EPISODE_RETURN_MEAN_KEY: args.stop_reward,
 }
-
-# Load policy if applicable
-if (args.restore_checkpoint):
-    print(f"Restoring checkpoint: {args.restore_checkpoint}")
-    assignRestoreCallback(args.restore_checkpoint, config, module_id)
-
+    
 ''' 
 algo = config.build_algo()
 
