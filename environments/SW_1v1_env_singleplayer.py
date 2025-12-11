@@ -136,14 +136,6 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         if (self.target_ammo != 0):
             target.stored_missiles = int(NUM_MISSILES * self.target_ammo)
             target.ang = np.random.uniform(0,360) # Random initial angle
-            # Don't spawn it facing the player
-            '''vec_diff = position-self.playerShips[0].pos
-            ang_diff = (np.arctan2(-vec_diff[1],vec_diff[0]) * 180/np.pi - target.ang)%360
-            abs_diff, sign_diff = np.abs(ang_diff), np.sign(ang_diff)
-            if (abs_diff < 90):
-               target.ang += 90*np.sign(ang_diff)
-            elif (abs_diff > 270):
-                target.ang -= 90*np.sign(ang_diff)'''
             target.updateAngUV()
     
     def reset(self, seed=None, options={}):
@@ -168,8 +160,8 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             self.terminated = True;
             self.rewards[0] = -1
         # Update the dummy ship
+        target = self.playerShips[1]
         if ((self.target_speed != 0) or (target.stored_missiles != 0)):
-            target = self.playerShips[1]
             target.update(self.opponent_missiles, self.speed, 
                 grav_multiplier=self.grav_multiplier*self.target_speed, target_loc=ship.pos)
             if (np.linalg.norm(target.pos, 2) < PLAYER_SIZE + STAR_SIZE):
