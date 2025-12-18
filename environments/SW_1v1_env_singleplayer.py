@@ -93,6 +93,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.size_multiplier = env_config['size_multiplier'] if 'size_multiplier' in env_config else 1.0
         # Target speed multiplier. A proportion of the stable orbital velocity
         self.target_speed = env_config['target_speed'] if 'target_speed' in env_config else 0.0
+        self.elliptical = env_config['elliptical'] if 'elliptical' in env_config else True
         self.target_ammo = env_config['target_ammo'] if 'target_ammo' in env_config else 0.0
         # Rendering
         self.metadata['render_modes'].append('rgb_array')
@@ -137,12 +138,15 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 if (pos_r > WRAP_BOUND):
                     position = position * -(2*WRAP_BOUND-pos_r) / pos_r
             # Set velocity (perpendicular to angle to star)
-            g = GRAV_CONST / (position[0]**2 + position[1]**2)
-            # For a circular orbit (v^2 = GM/r; GM=g)
-            v_magnitude = (g*r)**.5
+            g = GRAV_CONST #/ (position[0]**2 + position[1]**2)
+            if (not self.elliptical):
+                v_magnitude = (g/r)**.5 # For a circular orbit (v^2 = GM/r; g=GM)
+            else: #   eccentricity = (r_a - r_p) / (r_a + r_p); r_a = r
+                r_p = np.random.uniform(low=max(PLAYER_SIZE*2+STAR_SIZE, r/2), high=r)
+                ecc = (r - r_p) / (r + r_p)
+                # velocity at apocentre is sqrt((1-e) * GM / ((1+e) * r_a))
+                v_magnitude = ((1-ecc) * g / ((1+ecc)*r))**.5
             v_magnitude *= self.target_speed
-            # For an elliptical orbit (v^2 = GM (2/r - 1/a); a is the diameter of the semimajor axis.
-            # TODO: Add an option for elliptical orbit generation. Should give us a more robust agent.
             v_angle = np.arctan2(position[1],position[0]) + np.pi/2 * np.sign(np.random.rand()-0.5)
             target.vel = np.array([np.cos(v_angle), np.sin(v_angle)]) * v_magnitude
         target.pos = position
