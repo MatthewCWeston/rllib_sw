@@ -38,8 +38,8 @@ class SW_1v1_env(MultiAgentEnv):
             obs[i] = {
                 "self": self.playerShips[i].get_obs(ego),
                 "opponent": self.playerShips[(i+1)%2].get_obs(ego),
-                "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego) for m in self.missiles[(i+1)%2]]),
-                "missiles_hostile": self.missile_space.encode_obs([]),
+                "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego) for m in self.missiles[(i)%2]]),
+                "missiles_hostile": self.missile_space.encode_obs([m.get_obs(ego) for m in self.missiles[(i+1)%2]]),
               }
         return obs
     def get_keymap(self): # Set multidiscrete 
@@ -63,13 +63,14 @@ class SW_1v1_env(MultiAgentEnv):
         self.terminated = False # for rendering purposes
         self.last_acts = [[0,0,0],[0,0,0]]
         return self.get_obs(), {}
+        
     def step(self, actions):
         self.rewards = {0:0,1:0}
         self.time += 1 * self.speed
         self.last_acts = actions # for rendering
         # Thrust is acc times anguv
         for i, ship, in enumerate(self.playerShips):
-            ship.update(actions[i], self.missiles, self.speed)
+            ship.update(actions[i], self.missiles[i], self.speed)
             if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE + STAR_SIZE):
                 self.terminated = True;
                 self.rewards[i] = -1
@@ -86,6 +87,7 @@ class SW_1v1_env(MultiAgentEnv):
                     self.rewards[(si+1)%2] = 1
         truncated = (self.time >= self.maxTime)
         return self.get_obs(), self.rewards, {"__all__": self.terminated}, {"__all__": truncated}, {}
+        
     def render(self): # Display the environment state
         ego = None
         dim = self.size
@@ -106,8 +108,10 @@ class SW_1v1_env(MultiAgentEnv):
         for ship in self.playerShips:
             ship.render(draw, dim, hdim, ssz, self.terminated, ego=ego)
         # Draw the missiles
-        for m in self.missiles:
+        for m in self.missiles[0]:
             m.render(draw, hdim, msz, self.speed, ego=ego)
+        for m in self.missiles[1]:
+            m.render(draw, hdim, msz, self.speed, ego=ego, c="orange")
         # Rotate 90 degrees for easier viewing when using egocentric rendering
         if (self.egocentric):
             img = img.rotate(90)
