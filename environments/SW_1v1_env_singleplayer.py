@@ -138,8 +138,11 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                     position = position * -(2*WRAP_BOUND-pos_r) / pos_r
             # Set velocity (perpendicular to angle to star)
             g = GRAV_CONST / (position[0]**2 + position[1]**2)
+            # For a circular orbit (v^2 = GM/r; GM=g)
             v_magnitude = (g*r)**.5
             v_magnitude *= self.target_speed
+            # For an elliptical orbit (v^2 = GM (2/r - 1/a); a is the diameter of the semimajor axis.
+            # TODO: Add an option for elliptical orbit generation. Should give us a more robust agent.
             v_angle = np.arctan2(position[1],position[0]) + np.pi/2 * np.sign(np.random.rand()-0.5)
             target.vel = np.array([np.cos(v_angle), np.sin(v_angle)]) * v_magnitude
         target.pos = position

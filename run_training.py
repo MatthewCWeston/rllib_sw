@@ -81,6 +81,7 @@ parser.add_argument("--minibatch-size", type=int, default=4096)
 parser.add_argument("--critic-batch-size", type=int, default=32768)
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--restore-checkpoint", type=str)
+parser.add_argument("--vf-cold-start", action='store_true') # Don't restore value function weights
 
 args = parser.parse_args()
 
@@ -187,8 +188,8 @@ if (len(args.curriculum)>0):
                 "grav_multiplier": (EPISODE_RETURN_MIN, 0.0),
                 # Reduce target speed when above a certain score
                 "target_speed": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold),
-                # Increase target ammo when above a certain score
-                "target_ammo": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold),
+                # Increase target ammo when we reliably aren't getting shot down before achieving anything
+                "target_ammo": (EPISODE_RETURN_MIN, 0.0),
             },
             promotion_patience = args.curriculum_patience,
             num_increments = args.curriculum_increments,
@@ -223,6 +224,7 @@ if (args.restore_checkpoint):
         LoadOnAlgoInitCallback,
         ckpt_path=args.restore_checkpoint,
         module_name=module_id,
+        vf_cold_start=args.vf_cold_start,
     ))
 
 # Add spec
