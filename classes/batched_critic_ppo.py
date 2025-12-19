@@ -6,6 +6,8 @@ import torch
 from ray.rllib.algorithms.ppo.ppo import (
     LEARNER_RESULTS_CURR_ENTROPY_COEFF_KEY,
     LEARNER_RESULTS_KL_KEY,
+    LEARNER_RESULTS_VF_EXPLAINED_VAR_KEY,
+    LEARNER_RESULTS_VF_LOSS_UNCLIPPED_KEY,
     PPOConfig,
 )
 from ray.rllib.connectors.learner import (
@@ -25,12 +27,12 @@ from ray.rllib.utils.metrics import (
 from ray.rllib.utils.numpy import convert_to_numpy
 from ray.rllib.utils.schedules.scheduler import Scheduler
 from ray.rllib.utils.typing import ModuleID, TensorType
+from ray.rllib.utils.torch_utils import explained_variance
 
 from ray.rllib.algorithms.ppo.torch.ppo_torch_learner import PPOTorchLearner
 from ray.rllib.core.learner.torch.torch_learner import TorchLearner
 from ray.rllib.algorithms.ppo.ppo_learner import PPOLearner
 
-# @title BatchedGeneralAdvantageEstimation
 import numpy as np
 from ray.rllib.connectors.learner import (
     GeneralAdvantageEstimation,
@@ -39,6 +41,7 @@ from ray.rllib.connectors.learner import (
 from ray.rllib.connectors.connector_v2 import ConnectorV2
 from ray.rllib.connectors.common.numpy_to_tensor import NumpyToTensor
 from ray.rllib.core.columns import Columns
+from ray.rllib.core.learner.learner import ENTROPY_KEY, POLICY_LOSS_KEY, VF_LOSS_KEY
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModule
 from ray.rllib.evaluation.postprocessing import Postprocessing
 from ray.rllib.utils.postprocessing.value_predictions import compute_value_targets
@@ -49,14 +52,14 @@ from ray.rllib.utils.postprocessing.zero_padding import (
 from ray.rllib.utils.typing import EpisodeType
 
 class BatchedCriticPPOLearner(PPOTorchLearner):
-  @override(Learner)
-  def build(self) -> None:
-      TorchLearner.build(self) # We don't want to use super() because we're creating an alternative version of PPOLearner's build method, and we don't want to do certain things twice.
+    @override(Learner)
+    def build(self) -> None:
+        TorchLearner.build(self) # We don't want to use super() because we're creating an alternative version of PPOLearner's build method, and we don't want to do certain things twice.
 
-      # Dict mapping module IDs to the respective entropy Scheduler instance.
-      self.entropy_coeff_schedulers_per_module: Dict[
+        # Dict mapping module IDs to the respective entropy Scheduler instance.
+        self.entropy_coeff_schedulers_per_module: Dict[
           ModuleID, Scheduler
-      ] = LambdaDefaultDict(
+        ] = LambdaDefaultDict(
           lambda module_id: Scheduler(
               fixed_value_or_schedule=(
                   self.config.get_config_for_module(module_id).entropy_coeff
@@ -64,24 +67,24 @@ class BatchedCriticPPOLearner(PPOTorchLearner):
               framework=self.framework,
               device=self._device,
           )
-      )
+        )
 
-      # Set up KL coefficient variables (per module).
-      # Note that the KL coeff is not controlled by a Scheduler, but seeks
-      # to stay close to a given kl_target value.
-      self.curr_kl_coeffs_per_module: Dict[ModuleID, TensorType] = LambdaDefaultDict(
+        # Set up KL coefficient variables (per module).
+        # Note that the KL coeff is not controlled by a Scheduler, but seeks
+        # to stay close to a given kl_target value.
+        self.curr_kl_coeffs_per_module: Dict[ModuleID, TensorType] = LambdaDefaultDict(
           lambda module_id: self._get_tensor_variable(
               self.config.get_config_for_module(module_id).kl_coeff
           )
-      )
+        )
 
-      # Extend all episodes by one artificial timestep to allow the value function net
-      # to compute the bootstrap values (and add a mask to the batch to know, which
-      # slots to mask out).
-      if (
+        # Extend all episodes by one artificial timestep to allow the value function net
+        # to compute the bootstrap values (and add a mask to the batch to know, which
+        # slots to mask out).
+        if (
           self._learner_connector is not None
           and self.config.add_default_connectors_to_learner_pipeline
-      ):
+        ):
           # Before anything, add one ts to each episode (and record this in the loss
           # mask, so that the computations at this extra ts are not used to compute
           # the loss).
@@ -93,9 +96,119 @@ class BatchedCriticPPOLearner(PPOTorchLearner):
           # `forward_train` and `compute_losses`.
           self._learner_connector.append(
               BatchedGeneralAdvantageEstimation(
-                  gamma=self.config.gamma, lambda_=self.config.lambda_, batch_size=self.config.learner_config_dict["critic_batch_size"]
+                  gamma=self.config.gamma, lambda_=self.config.lambda_, 
+                  batch_size=self.config.learner_config_dict["critic_batch_size"],
               )
           )
+        # Cold start the value function?
+        self.vf_cold_start=self.config.learner_config_dict["vf_cold_start"]
+        self.cold_start_counter=0
+    
+    @override(TorchLearner)
+    def compute_loss_for_module(
+        self,
+        *,
+        module_id: ModuleID,
+        config: PPOConfig,
+        batch: Dict[str, Any],
+        fwd_out: Dict[str, TensorType],
+    ) -> TensorType:
+        module = self.module[module_id].unwrapped()
+        '''
+           Modified to ignore the actor for the first `vf_cold_start` epochs 
+        '''
+        if Columns.LOSS_MASK in batch:
+            mask = batch[Columns.LOSS_MASK]
+            num_valid = torch.sum(mask)
+
+            def possibly_masked_mean(data_):
+                return torch.sum(data_[mask]) / num_valid
+
+        else:
+            possibly_masked_mean = torch.mean
+
+        action_dist_class_train = module.get_train_action_dist_cls()
+        action_dist_class_exploration = module.get_exploration_action_dist_cls()
+
+        curr_action_dist = action_dist_class_train.from_logits(
+            fwd_out[Columns.ACTION_DIST_INPUTS]
+        )
+        prev_action_dist = action_dist_class_exploration.from_logits(
+            batch[Columns.ACTION_DIST_INPUTS]
+        )
+
+        logp_ratio = torch.exp(
+            curr_action_dist.logp(batch[Columns.ACTIONS]) - batch[Columns.ACTION_LOGP]
+        )
+
+        # Only calculate kl loss if necessary (kl-coeff > 0.0).
+        if config.use_kl_loss:
+            action_kl = prev_action_dist.kl(curr_action_dist)
+            mean_kl_loss = possibly_masked_mean(action_kl)
+        else:
+            mean_kl_loss = torch.tensor(0.0, device=logp_ratio.device)
+
+        curr_entropy = curr_action_dist.entropy()
+        mean_entropy = possibly_masked_mean(curr_entropy)
+
+        surrogate_loss = torch.min(
+            batch[Postprocessing.ADVANTAGES] * logp_ratio,
+            batch[Postprocessing.ADVANTAGES]
+            * torch.clamp(logp_ratio, 1 - config.clip_param, 1 + config.clip_param),
+        )
+
+        # Compute a value function loss.
+        if config.use_critic:
+            value_fn_out = module.compute_values(
+                batch, embeddings=fwd_out.get(Columns.EMBEDDINGS)
+            )
+            vf_loss = torch.pow(value_fn_out - batch[Postprocessing.VALUE_TARGETS], 2.0)
+            vf_loss_clipped = torch.clamp(vf_loss, 0, config.vf_clip_param)
+            mean_vf_loss = possibly_masked_mean(vf_loss_clipped)
+            mean_vf_unclipped_loss = possibly_masked_mean(vf_loss)
+        # Ignore the value function -> Set all to 0.0.
+        else:
+            z = torch.tensor(0.0, device=surrogate_loss.device)
+            value_fn_out = mean_vf_unclipped_loss = vf_loss_clipped = mean_vf_loss = z
+
+        if (self.vf_cold_start > self.cold_start_counter):
+            # Compute loss for the critic only
+            total_loss = possibly_masked_mean(
+                config.vf_loss_coeff * vf_loss_clipped
+            )
+            self.cold_start_counter += 1
+            #print(self.cold_start_counter)
+        else: # Compute loss normally
+            total_loss = possibly_masked_mean(
+                -surrogate_loss
+                + config.vf_loss_coeff * vf_loss_clipped
+                - (
+                    self.entropy_coeff_schedulers_per_module[module_id].get_current_value()
+                    * curr_entropy
+                )
+            )
+            # Add mean_kl_loss (already processed through `possibly_masked_mean`),
+            # if necessary.
+            if config.use_kl_loss:
+                total_loss += self.curr_kl_coeffs_per_module[module_id] * mean_kl_loss
+
+        # Log important loss stats.
+        self.metrics.log_dict(
+            {
+                POLICY_LOSS_KEY: -possibly_masked_mean(surrogate_loss),
+                VF_LOSS_KEY: mean_vf_loss,
+                LEARNER_RESULTS_VF_LOSS_UNCLIPPED_KEY: mean_vf_unclipped_loss,
+                LEARNER_RESULTS_VF_EXPLAINED_VAR_KEY: explained_variance(
+                    batch[Postprocessing.VALUE_TARGETS], value_fn_out
+                ),
+                ENTROPY_KEY: mean_entropy,
+                LEARNER_RESULTS_KL_KEY: mean_kl_loss,
+            },
+            key=module_id,
+            window=1,  # <- single items (should not be mean/ema-reduced over time).
+        )
+        # Return the total loss.
+        return total_loss
           
 def batch_dict(m_in, s, mb_size):
     ''' Take a dictionary, start position, and batch size, and return a batch. '''

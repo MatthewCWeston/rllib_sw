@@ -81,7 +81,7 @@ parser.add_argument("--minibatch-size", type=int, default=4096)
 parser.add_argument("--critic-batch-size", type=int, default=32768)
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--restore-checkpoint", type=str)
-parser.add_argument("--vf-cold-start", action='store_true') # Don't restore value function weights
+parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
 
 args = parser.parse_args()
 
@@ -108,7 +108,10 @@ config = (
         grad_clip=100,      # From hyperparameter search
         lambda_=args.lambda_,
         learner_class=BatchedCriticPPOLearner,
-        learner_config_dict={'critic_batch_size': args.critic_batch_size}, # Just to avoid OOM; not a hyperparameter
+        learner_config_dict={
+            'critic_batch_size': args.critic_batch_size,
+            'vf_cold_start': args.vf_cold_start, # Pre-train the value function for K minibatches
+        }, # Just to avoid OOM; not a hyperparameter
     )
 )
 # Handle envs in MA format
