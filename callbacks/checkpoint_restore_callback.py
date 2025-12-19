@@ -38,7 +38,9 @@ class LoadOnAlgoInitCallback(RLlibCallback):
         m_to_load = algorithm.get_module(self.module_name)
         if (self.vf_cold_start):
             original_state = copy.deepcopy(m_to_load.state_dict())
-            keys_to_load = filter(lambda x: x[:2]=='vf', list(original_state.keys()))
+            print(list(original_state.keys()))
+            #keys_to_load = filter(lambda x: x[:2]=='vf', list(original_state.keys()))
+            keys_to_load = filter(lambda x: x[:2]=='vf' or x[8:14]=='critic', list(original_state.keys()))
             #keys_to_load = list(original_state.keys())
             original_state = {k: original_state[k] for k in keys_to_load}
         weight_before = convert_to_numpy(next(iter(m_to_load.parameters())))
@@ -72,3 +74,5 @@ class LoadOnAlgoInitCallback(RLlibCallback):
                 policies=[ALL_MODULES],
                 inference_only=True,
             )'''
+            
+# ['encoder.actor_encoder.mha.0.mha.in_proj_weight', 'encoder.actor_encoder.mha.0.mha.in_proj_bias', 'encoder.actor_encoder.mha.0.mha.out_proj.weight', 'encoder.actor_encoder.mha.0.mha.out_proj.bias', 'encoder.actor_encoder.mha.0.norm_attn.weight', 'encoder.actor_encoder.mha.0.norm_attn.bias', 'encoder.actor_encoder.mha.0.norm_ff.weight', 'encoder.actor_encoder.mha.0.norm_ff.bias', 'encoder.actor_encoder.mha.0.residual.0.weight', 'encoder.actor_encoder.mha.0.residual.0.bias', 'encoder.actor_encoder.mha.0.residual.3.weight', 'encoder.actor_encoder.mha.0.residual.3.bias', 'encoder.actor_encoder.embs.missiles_friendly.weight', 'encoder.actor_encoder.embs.missiles_friendly.bias', 'encoder.actor_encoder.embs.missiles_hostile.weight', 'encoder.actor_encoder.embs.missiles_hostile.bias', 'encoder.actor_encoder.embs.opponent.weight', 'encoder.actor_encoder.embs.opponent.bias', 'encoder.actor_encoder.embs.self.weight', 'encoder.actor_encoder.embs.self.bias', 'encoder.critic_encoder.mha.0.mha.in_proj_weight', 'encoder.critic_encoder.mha.0.mha.in_proj_bias', 'encoder.critic_encoder.mha.0.mha.out_proj.weight', 'encoder.critic_encoder.mha.0.mha.out_proj.bias', 'encoder.critic_encoder.mha.0.norm_attn.weight', 'encoder.critic_encoder.mha.0.norm_attn.bias', 'encoder.critic_encoder.mha.0.norm_ff.weight', 'encoder.critic_encoder.mha.0.norm_ff.bias', 'encoder.critic_encoder.mha.0.residual.0.weight', 'encoder.critic_encoder.mha.0.residual.0.bias', 'encoder.critic_encoder.mha.0.residual.3.weight', 'encoder.critic_encoder.mha.0.residual.3.bias', 'encoder.critic_encoder.embs.missiles_friendly.weight', 'encoder.critic_encoder.embs.missiles_friendly.bias', 'encoder.critic_encoder.embs.missiles_hostile.weight', 'encoder.critic_encoder.embs.missiles_hostile.bias', 'encoder.critic_encoder.embs.opponent.weight', 'encoder.critic_encoder.embs.opponent.bias', 'encoder.critic_encoder.embs.self.weight', 'encoder.critic_encoder.embs.self.bias', 'pi.log_std_clip_param_const', 'pi.net.mlp.0.weight', 'pi.net.mlp.0.bias', 'pi.net.mlp.2.weight', 'pi.net.mlp.2.bias', 'pi.net.mlp.4.weight', 'pi.net.mlp.4.bias', 'vf.log_std_clip_param_const', 'vf.net.mlp.0.weight', 'vf.net.mlp.0.bias', 'vf.net.mlp.2.weight', 'vf.net.mlp.2.bias', 'vf.net.mlp.4.weight', 'vf.net.mlp.4.bias']
