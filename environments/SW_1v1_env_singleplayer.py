@@ -17,6 +17,8 @@ class Dummy_Ship(Ship):
         if (self.stored_missiles > 0):
             # Rotate towards player
             vec_diff = target_loc-self.pos
+            # wrap vec_diff
+            wrap(vec_diff)
             ang_diff = (np.arctan2(-vec_diff[1],vec_diff[0]) * 180/np.pi - self.ang)%360
             if (ang_diff > 180): 
                 action = 2 # turn left; positive angle greater than pi
@@ -85,6 +87,8 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.egocentric = env_config['egocentric'] if 'egocentric' in env_config else False
         self.render_egocentric = env_config['render_egocentric'] if 'render_egocentric' in env_config else False
         self.maxTime = env_config['ep_length'] if 'ep_length' in env_config else DEFAULT_MAX_TIME
+        # Later on, could replace speed's multiplier with a for loop for better fidelity/robustness.
+        # (Sample actions every K steps, shoot once, every other command gets repeated)
         self.speed = env_config['speed'] if 'speed' in env_config else 1.0
         self.size = env_config['render_size'] if 'render_size' in env_config else DEFAULT_RENDER_SIZE
         # Gravity multiplier for curriculum learning
