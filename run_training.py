@@ -109,9 +109,9 @@ config = (
         lambda_=args.lambda_,
         learner_class=BatchedCriticPPOLearner,
         learner_config_dict={
-            'critic_batch_size': args.critic_batch_size,
+            'critic_batch_size': args.critic_batch_size, # Just to avoid OOM; not a hyperparameter
             'vf_cold_start': args.vf_cold_start, # Pre-train the value function for K minibatches
-        }, # Just to avoid OOM; not a hyperparameter
+        },
     )
 )
 # Handle envs in MA format
