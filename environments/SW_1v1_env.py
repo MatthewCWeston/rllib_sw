@@ -19,12 +19,12 @@ class SW_1v1_env(MultiAgentEnv):
         ship_space = Box(-1,1,shape=(Ship.REPR_SIZE,))
         missile_space = Box(-1,1,shape=(Missile.REPR_SIZE,))
         self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
-        self.observation_spaces = Dict({
+        self.observation_spaces = {i: Dict({
             "self": ship_space, # my ship, enemy ship
             "opponent": ship_space,
             "missiles_friendly": self.missile_space, # Friendly missiles
             "missiles_hostile": self.missile_space # Hostile missiles
-        })
+        }) for i in range(2)}
         self.maxTime = env_config['ep_length'] if 'ep_length' in env_config else DEFAULT_MAX_TIME
         self.speed = env_config['speed'] if 'speed' in env_config else 1.0
         self.size = env_config['render_size'] if 'render_size' in env_config else DEFAULT_RENDER_SIZE

@@ -36,7 +36,7 @@ def query_model(agent, obs, env, action_space):
     actions = []
     for ax in action_shape:
         a_logits = a[p:p+ax]
-        probs = torch.nn.Softmax()(a_logits)
+        probs = torch.nn.Softmax(dim=0)(a_logits)
         action = Categorical(probs).sample()
         actions.append(action.item())
         p += ax
