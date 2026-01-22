@@ -173,23 +173,15 @@ config.callbacks(callbacks)
     
 #''' Test it out with this train loop
 algo = config.build_algo()
-
-from ray.rllib.utils.metrics import (
-    ENV_RUNNER_RESULTS,
-    EPISODE_RETURN_MEAN,
-    EVALUATION_RESULTS,
-)
-import numpy as np
-
 num_iters = args.stop_iters
 
 for i in range(num_iters):
   results = algo.train()
   if ENV_RUNNER_RESULTS in results:
-      mean_return = results[ENV_RUNNER_RESULTS].get(
-          EPISODE_RETURN_MEAN, np.nan
-      )
-      print(f"iter={i} R={mean_return}") 
+      mean_return = results[ENV_RUNNER_RESULTS]['agent_episode_returns_mean']
+      vf_loss = results['learners']['main']['vf_loss']
+      mean_return = [(k, f'{v:.2f}') for k, v in mean_return.items()]
+      print(f"iter={i+1} VF loss={vf_loss:.2f} R={mean_return}")
 '''
 
 # Run the experiment.

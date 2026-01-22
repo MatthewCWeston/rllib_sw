@@ -9,6 +9,7 @@ import ray
 from ray.rllib.models import ModelCatalog
 
 from ray.rllib.algorithms.ppo.ppo import PPOConfig
+from ray.rllib.algorithms.ppo.torch.default_ppo_torch_rl_module import DefaultPPOTorchRLModule
 from ray.rllib.connectors.env_to_module.flatten_observations import FlattenObservations
 from ray.rllib.core import DEFAULT_MODULE_ID
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
@@ -36,6 +37,9 @@ from classes.batched_critic_ppo import BatchedCriticPPOLearner
 from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
 from callbacks.curriculum_learning_callback import CurriculumLearningCallback
 from callbacks.render_callback import RenderCallback
+from eppo.attention_eppo_catalog import AttentionEPPOCatalog
+from eppo.eppo_torch_rl_module import EPPOTorchRLModule
+from eppo.eppo_torch_learner import EPPOTorchLearner
 
 
 # Get environment class 
@@ -82,12 +86,18 @@ parser.add_argument("--critic-batch-size", type=int, default=32768)
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--restore-checkpoint", type=str)
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
+parser.add_argument("--use-eppo", action='store_true') # Don't restore value function weights
 
 args = parser.parse_args()
 
 env_name = args.env_name
 target_env = get_env_class(env_name)
 register_env("env", lambda cfg: target_env(cfg))
+
+# Are we using EPPO (to help with curriculum learning)?
+catalog_class = AttentionEPPOCatalog if (args.use_eppo) else AttentionPPOCatalog
+module_class = EPPOTorchRLModule if (args.use_eppo) else DefaultPPOTorchRLModule
+learner_class = EPPOTorchLearner if (args.use_eppo) else BatchedCriticPPOLearner # EPPO ignores cold start
 
 # Configure run
 callbacks = []
@@ -107,13 +117,14 @@ config = (
         use_kl_loss=False,  # From hyperparameter search
         grad_clip=100,      # From hyperparameter search
         lambda_=args.lambda_,
-        learner_class=BatchedCriticPPOLearner,
+        learner_class=learner_class,
         learner_config_dict={
             'critic_batch_size': args.critic_batch_size, # Just to avoid OOM; not a hyperparameter
             'vf_cold_start': args.vf_cold_start, # Pre-train the value function for K minibatches
         },
     )
 )
+
 # Handle envs in MA format
 env = target_env(args.env_config) # sample
 ma_env = isinstance(env, MultiAgentEnv)
@@ -131,6 +142,7 @@ else:
     module_id = DEFAULT_MODULE_ID
     obs_space = env.observation_space
     act_space = env.action_space
+   
 
 # Architecture
 if (not args.no_custom_arch):
@@ -138,7 +150,8 @@ if (not args.no_custom_arch):
     print(f"Share layers = {args.share_layers}")
     specs = {
         module_id: RLModuleSpec(
-            catalog_class=AttentionPPOCatalog,
+            module_class=module_class,
+            catalog_class=catalog_class,
             observation_space=obs_space,
             action_space=act_space,
             model_config={
@@ -159,6 +172,7 @@ else:
     print('Using default architecture')
     specs = {
         module_id: RLModuleSpec(
+            module_class=module_class,
             model_config=DefaultModelConfig(
                 use_lstm=args.use_lstm,
                 lstm_cell_size=1024,
