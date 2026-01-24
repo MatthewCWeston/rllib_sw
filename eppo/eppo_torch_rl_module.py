@@ -35,7 +35,10 @@ class EPPOTorchRLModule(DefaultPPOTorchRLModule):
     ) -> TensorType:
         # Used in the general case, and by GAE in particular
         if embeddings is None:
-            embeddings = self.encoder(batch)[ENCODER_OUT]
+            if hasattr(self.encoder, "critic_encoder"):
+                embeddings = self.encoder.critic_encoder(batch)[ENCODER_OUT]
+            else:
+                embeddings = self.encoder(batch)[ENCODER_OUT][CRITIC]
         vf_out = self.vf(embeddings) # 
         gamma, _,_,_ = [x.squeeze() for x in vf_out.chunk(4, dim=-1)]
         return gamma

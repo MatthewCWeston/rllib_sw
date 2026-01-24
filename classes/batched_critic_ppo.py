@@ -1,4 +1,3 @@
-# @title BatchedCriticPPOLearner
 import abc
 from typing import Any, List, Dict
 import torch

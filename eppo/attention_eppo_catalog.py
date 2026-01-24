@@ -3,6 +3,7 @@ import gymnasium as gym
 from ray.rllib.algorithms.ppo.ppo_catalog import PPOCatalog
 from ray.rllib.core.models.catalog import Catalog
 from ray.rllib.core.models.configs import ActorCriticEncoderConfig
+from ray.rllib.utils.annotations import override
 
 from classes.attention_encoder import AttentionPPOCatalog
 

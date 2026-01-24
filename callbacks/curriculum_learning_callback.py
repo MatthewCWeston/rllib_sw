@@ -53,16 +53,16 @@ class CurriculumLearningCallback(RLlibCallback):
     ) -> None:
         # Set the initial task to 0.
         for k in self.attribute_dict.keys():
-            algorithm.metrics.log_value(f"{k}_current_env_task", 0, window=1)
-            algorithm.metrics.log_value(f"{k}_promotion_cycles", 0, window=1)
-            algorithm.metrics.log_value(f"{k}_demotion_cycles", 0, window=1)
+            algorithm.metrics.log_value(f"{k}_current_env_task", 0, reduce="lifetime_sum")
+            algorithm.metrics.log_value(f"{k}_promotion_cycles", 0, reduce="lifetime_sum")
+            algorithm.metrics.log_value(f"{k}_demotion_cycles", 0, reduce="lifetime_sum")
         
     def promote(self, k, algorithm, current_task, metrics_logger, adj=1.0):
         next_task = current_task + adj
         base, increment = self.attribute_dict[k]
         self.env_config[k] = base + next_task*increment
         print(f"Switching {k} task on all EnvRunners up to {self.env_config[k]:.2f}; {self.env_config}")
-        metrics_logger.log_value(f"{k}_current_env_task", next_task, window=1)
+        metrics_logger.log_value(f"{k}_current_env_task", adj, window=1)
 
     def on_train_result(
         self,
@@ -96,9 +96,9 @@ class CurriculumLearningCallback(RLlibCallback):
                 if (cycles_waited > self.promotion_patience):
                     promoted = True
                     self.promote(k, algorithm, current_task, metrics_logger)
-                    metrics_logger.log_value(p_cycles, 0, window=1) # Reset the counter for next promotion
+                    metrics_logger.log_value(p_cycles, -cycles_waited) # Reset the counter for next promotion
                 else:
-                    metrics_logger.log_value(p_cycles, cycles_waited+1, window=1)
+                    metrics_logger.log_value(p_cycles, 1) # Add one to the counter
                     print(f"{k}: Waiting until {self.promotion_patience} for promotion: {cycles_waited}")
             else:
                 metrics_logger.log_value(p_cycles, 0, window=1) # Reset, it was a fluke.
@@ -110,9 +110,9 @@ class CurriculumLearningCallback(RLlibCallback):
                         if (cycles_waited > self.promotion_patience):
                             promoted = True
                             self.promote(k, algorithm, current_task, metrics_logger, adj=-1.0) # Go back down
-                            metrics_logger.log_value(d_cycles, 0, window=1) # Reset the counter for next promotion
+                            metrics_logger.log_value(d_cycles, -cycles_waited)
                         else:
-                            metrics_logger.log_value(d_cycles, cycles_waited+1, window=1)
+                            metrics_logger.log_value(d_cycles, 1)
                             print(f"{k}: Waiting until {self.promotion_patience} for demotion: {cycles_waited}")
                 else:
                     metrics_logger.log_value(d_cycles, 0, window=1) # Reset demotion cycles

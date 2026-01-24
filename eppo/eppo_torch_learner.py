@@ -19,6 +19,8 @@ from ray.rllib.utils.typing import ModuleID, TensorType
 
 from ray.rllib.algorithms.ppo.torch.ppo_torch_learner import PPOTorchLearner
 
+from classes.batched_critic_ppo import BatchedCriticPPOLearner
+
 torch, nn = try_import_torch()
 
 logger = logging.getLogger(__name__)

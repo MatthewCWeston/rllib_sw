@@ -20,7 +20,7 @@ class LoadOnAlgoInitCallback(RLlibCallback):
         ckpt_path: str,
         module_name: str,
         vf_cold_start: bool,
-        dest_module_names: typing.List[str] | None = None,
+        dest_module_names: typing.Optional[typing.List[str]] = None,
     ):
         dest_module_names = dest_module_names or [module_name] # Potentially, load weights into new dest.
         self.ckpt_path = (
@@ -65,6 +65,6 @@ class LoadOnAlgoInitCallback(RLlibCallback):
         if (self.vf_cold_start):
             print("Load original state")
             def reload_original_vf(_learner):
-                for dest_module in self.dest_module_names
+                for dest_module in self.dest_module_names:
                  _learner.module[dest_module].load_state_dict(original_states[dest_module], strict=False)
             algorithm.learner_group.foreach_learner(func=reload_original_vf)
