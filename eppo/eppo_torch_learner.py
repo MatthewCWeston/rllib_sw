@@ -99,8 +99,8 @@ class EPPOTorchLearner(BatchedCriticPPOLearner):
                 + torch.lgamma(alpha)
                 - torch.lgamma(alpha + 0.5)
             )
-            #
-            vf_loss_clipped = torch.clamp(vf_loss, 0, config.vf_clip_param)
+            # Remember that probabilistic value head loss can be negative.
+            vf_loss_clipped = vf_loss.sign() * torch.clamp(vf_loss.abs(), 0, config.vf_clip_param)
             mean_vf_loss = possibly_masked_mean(vf_loss_clipped)
             mean_vf_unclipped_loss = possibly_masked_mean(vf_loss)
         # Ignore the value function -> Set all to 0.0.
