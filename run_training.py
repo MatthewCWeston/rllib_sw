@@ -87,6 +87,7 @@ parser.add_argument("--render-every", type=int, default=0) # Every X steps, reco
 parser.add_argument("--restore-checkpoint", type=str)
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
 parser.add_argument("--use-eppo", action='store_true') # Don't restore value function weights
+parser.add_argument("--grad-clip", type=float, default=100.0)
 
 args = parser.parse_args()
 
@@ -115,13 +116,14 @@ config = (
         lr=args.lr,
         vf_clip_param=float(args.vf_clip),
         use_kl_loss=False,  # From hyperparameter search
-        grad_clip=100,      # From hyperparameter search
         lambda_=args.lambda_,
         learner_class=learner_class,
         learner_config_dict={
             'critic_batch_size': args.critic_batch_size, # Just to avoid OOM; not a hyperparameter
             'vf_cold_start': args.vf_cold_start, # Pre-train the value function for K minibatches
         },
+        grad_clip=args.grad_clip if hasattr(args, 'grad_clip') else None,
+        grad_clip_by="global_norm",
     )
 )
 

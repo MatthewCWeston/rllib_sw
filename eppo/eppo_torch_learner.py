@@ -99,7 +99,15 @@ class EPPOTorchLearner(BatchedCriticPPOLearner):
                 + torch.lgamma(alpha)
                 - torch.lgamma(alpha + 0.5)
             )
+            # Add a regularization loss
+            vf_loss += module.get_regularization_loss(gamma, v, alpha, beta)
             # Remember that probabilistic value head loss can be negative.
+            ''' TODO: Clip grad norm instead of clamp?
+            # max_grad_norm = 0.5
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+            self.optim.step()
+            '''
             vf_loss_clipped = vf_loss.sign() * torch.clamp(vf_loss.abs(), 0, config.vf_clip_param)
             mean_vf_loss = possibly_masked_mean(vf_loss_clipped)
             mean_vf_unclipped_loss = possibly_masked_mean(vf_loss)
