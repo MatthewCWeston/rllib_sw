@@ -27,7 +27,6 @@ class EPPOTorchRLModule(DefaultPPOTorchRLModule):
         # Skip DefaultPPOTorchRLModule.__init__
         super(DefaultPPOTorchRLModule, self).__init__(*args, **kwargs, catalog_class=catalog_class)
         # Create priors
-        print(f"Adding priors for evidential critic")
         self.register_buffer("gamma_mu", torch.tensor(0.0))
         self.register_buffer("gamma_sigma", torch.tensor(100.0))
         self.register_buffer("v_mu", torch.tensor(5.0))
