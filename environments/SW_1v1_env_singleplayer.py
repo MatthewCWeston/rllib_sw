@@ -1,15 +1,17 @@
 import gymnasium as gym
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
-from ray.rllib.utils.spaces.repeated import Repeated
 from gymnasium.spaces import MultiDiscrete, Box, Dict
 import numpy as np
 from PIL import Image, ImageDraw
 import pygame
 
 from classes.repeated_space import RepeatedCustom
+from classes.attention_encoder import CRITIC_ONLY
 
 from environments.SpaceWar_constants import *
 from environments.SpaceWar_objects import Missile, Ship, ego_pt, wrap
+
+ENV_DYNAMICS = CRITIC_ONLY+"_env_dynamics"
       
 class Dummy_Ship(Ship):
     def update(self, missiles, speed, grav_multiplier, target_loc):
@@ -73,45 +75,54 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         super().__init__()
         self.agents = self.possible_agents = [0]
         # nop/thrust, nop/left/right, npo/shoot
-        self.action_spaces = {i: MultiDiscrete([2,3,2]) for i in range(1)}
+        self.egocentric = env_config.get('egocentric', True) # Egocentric coordinates are just better.
+        self.render_egocentric = env_config.get('render_egocentric', False)
+        self.maxTime = env_config.get('ep_length', DEFAULT_MAX_TIME)
+        # Later on, could replace speed's multiplier with a for loop for better fidelity/robustness.
+        # (Sample actions every K steps, shoot once, every other command gets repeated)
+        self.speed = env_config.get('speed', 1.0)
+        self.size = env_config.get('render_size', DEFAULT_RENDER_SIZE)
+        # Gravity multiplier for curriculum learning
+        self.grav_multiplier = self.true_grav_multiplier = env_config.get('grav_multiplier', 1.0)
+        # Target size multiplier for curriculum learning (multiply radius to scale area linearly)
+        self.size_multiplier = self.true_size_multiplier = env_config.get('size_multiplier', 1.0)
+        # Target speed multiplier. A proportion of the stable orbital velocity
+        self.target_speed = self.true_target_speed = env_config.get('target_speed', 0.0)
+        self.elliptical = env_config.get('elliptical', True)
+        self.target_ammo = self.true_target_ammo = env_config.get('target_ammo', 0.0)
+        # Randomize the curriculum?
+        self.probabilistic = env_config.get('probabilistic_difficulty', False)
+        self.inform_critic = env_config.get('inform_critic', False) # Share environment dynamics with the critic
+        # Rendering
+        self.metadata['render_modes'].append('rgb_array')
+        self.render_mode = 'rgb_array'
         # Observation spaces; fixed and variable
         ship_space = Box(-1,1,shape=(Ship.REPR_SIZE,))
         missile_space = Box(-1,1,shape=(Missile.REPR_SIZE,))
         self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
-        self.observation_spaces = {i: Dict({
+        obs_space = {
             "self": ship_space, # my ship, enemy ship
             "opponent": ship_space,
             "missiles_friendly": self.missile_space, # Friendly missiles
             "missiles_hostile": self.missile_space # Hostile missiles
-        }) for i in range(1)}
-        self.egocentric = env_config['egocentric'] if 'egocentric' in env_config else False
-        self.render_egocentric = env_config['render_egocentric'] if 'render_egocentric' in env_config else False
-        self.maxTime = env_config['ep_length'] if 'ep_length' in env_config else DEFAULT_MAX_TIME
-        # Later on, could replace speed's multiplier with a for loop for better fidelity/robustness.
-        # (Sample actions every K steps, shoot once, every other command gets repeated)
-        self.speed = env_config['speed'] if 'speed' in env_config else 1.0
-        self.size = env_config['render_size'] if 'render_size' in env_config else DEFAULT_RENDER_SIZE
-        # Gravity multiplier for curriculum learning
-        self.grav_multiplier = env_config['grav_multiplier'] if 'grav_multiplier' in env_config else 1.0
-        # Target size multiplier for curriculum learning (multiply radius to scale area linearly)
-        self.size_multiplier = env_config['size_multiplier'] if 'size_multiplier' in env_config else 1.0
-        # Target speed multiplier. A proportion of the stable orbital velocity
-        self.target_speed = env_config['target_speed'] if 'target_speed' in env_config else 0.0
-        self.elliptical = env_config['elliptical'] if 'elliptical' in env_config else True
-        self.target_ammo = env_config['target_ammo'] if 'target_ammo' in env_config else 0.0
-        # Rendering
-        self.metadata['render_modes'].append('rgb_array')
-        self.render_mode = 'rgb_array'
+        }
+        if (self.inform_critic):
+            obs_space[ENV_DYNAMICS] = Box(0,1,shape=(4,)) # gm, sm/10, ts, ta
+        self.observation_spaces = {i: Dict(obs_space) for i in range(1)}
+        self.action_spaces = {i: MultiDiscrete([2,3,2]) for i in range(1)}
         
     def get_obs(self):
         ego = self.playerShips[0] if self.egocentric else None
-        return {0: {
-                "self": self.playerShips[0].get_obs(ego),
-                "opponent": self.playerShips[1].get_obs(ego),
-                "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego) for m in self.missiles]),
-                "missiles_hostile":  self.missile_space.encode_obs([m.get_obs(ego) for m in self.opponent_missiles]),
-              }
-            }
+        obs = {
+            "self": self.playerShips[0].get_obs(ego),
+            "opponent": self.playerShips[1].get_obs(ego),
+            "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego) for m in self.missiles]),
+            "missiles_hostile":  self.missile_space.encode_obs([m.get_obs(ego) for m in self.opponent_missiles]),
+        }
+        if (self.inform_critic):
+            obs[ENV_DYNAMICS] = np.array([self.grav_multiplier, self.size_multiplier / 10, self.target_speed, self.target_ammo])
+        return {0: obs}
+        
     def get_keymap(self): # Set multidiscrete 
         return {0: {pygame.K_UP: (0,1,False), # Action, Value, hold_disallowed (qol)
                 pygame.K_LEFT: (1,1,False), pygame.K_RIGHT: (1,2,False),
@@ -162,6 +173,11 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             target.stored_missiles = 0
     
     def reset(self, seed=None, options={}):
+        if (self.probabilistic == True):
+            self.grav_multiplier = np.clip(self.true_grav_multiplier + np.random.normal(0,0.1), 0, 1) # [0,1], sd of 0.1
+            self.size_multiplier = np.clip(self.true_size_multiplier + np.random.normal(0,1), 1, 10)  # [1,10], sd of 1
+            self.target_speed = np.clip(self.true_target_speed + np.random.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
+            self.target_ammo = np.clip(self.true_target_ammo + np.random.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
         self.playerShips = [
             Ship(np.array([-.5, .5]), 90.),
             Dummy_Ship(np.array([0.,0.]),0.,PLAYER_SIZE*self.size_multiplier)

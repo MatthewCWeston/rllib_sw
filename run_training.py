@@ -84,6 +84,7 @@ parser.add_argument("--batch-size", type=int, default=32768)
 parser.add_argument("--minibatch-size", type=int, default=4096)
 parser.add_argument("--critic-batch-size", type=int, default=32768)
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
+parser.add_argument("--evaluate-every", type=int, default=0) # Every X steps, record the average score at max difficulty
 parser.add_argument("--restore-checkpoint", type=str)
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
 parser.add_argument("--use-eppo", action='store_true') # Don't restore value function weights
@@ -108,7 +109,6 @@ config = (
         env="env",
         env_config=args.env_config,
     )
-    .framework("torch")
     .training(
         train_batch_size=args.batch_size,
         minibatch_size=args.minibatch_size,
@@ -204,16 +204,25 @@ if (len(args.curriculum)>0):
                 # Reduce target size when above a certain score
                 "size_multiplier": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold), 
                 # Increase gravity when we reliably aren't crashing before achieving anything
-                "grav_multiplier": (EPISODE_RETURN_MIN, 0.0),
+                "grav_multiplier": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold),
                 # Reduce target speed when above a certain score
                 "target_speed": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold),
                 # Increase target ammo when we reliably aren't getting shot down before achieving anything
-                "target_ammo": (EPISODE_RETURN_MIN, 0.0),
+                "target_ammo": (EPISODE_RETURN_MEAN, args.curriculum_score_threshold),
             },
             promotion_patience = args.curriculum_patience,
             num_increments = args.curriculum_increments,
             allow_demotions = args.curriculum_allow_demotions,
         )
+    )
+    
+if (args.evaluate_every != 0): # Evaluate under a fixed config demonstrating the hardest conditions
+    print(f"Evaluating every {args.evaluate_every} epochs.")
+    config.evaluation(
+        evaluation_interval=args.evaluate_every, # Evaluate every X epochs
+        evaluation_duration=50, # 50 episodes per evaluation
+        evaluation_duration_unit="episodes",
+        evaluation_config={"env_config": {"speed": 5.0, "ep_length": 4096, "probabilistic_difficulty": False,"size_multiplier":1.0,"grav_multiplier":1.0,"target_speed":1.0,"target_ammo":1.0, "egocentric": True}},
     )
 
 # Learning rate decay

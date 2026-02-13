@@ -3,8 +3,9 @@ This file implements a self-attention Encoder (see https://arxiv.org/abs/1909.07
 """
 from ray.rllib.algorithms.ppo.ppo_catalog import PPOCatalog
 from ray.rllib.core.models.torch.base import TorchModel
-from ray.rllib.core.models.base import Encoder, ENCODER_OUT
-from ray.rllib.core.models.configs import ModelConfig
+from ray.rllib.core.models.base import ActorCriticEncoder, Encoder, ENCODER_OUT
+from ray.rllib.core.models.torch.encoder import TorchActorCriticEncoder
+from ray.rllib.core.models.configs import ModelConfig, ActorCriticEncoderConfig
 from ray.rllib.core.columns import Columns
 
 import gymnasium as gym
@@ -14,6 +15,8 @@ from classes.repeated_space import RepeatedCustom
 import torch
 from torch import nn
 import torch.nn.functional as F
+
+CRITIC_ONLY = "CRITIC_ONLY" # Environment dynamics that the actor encoder should discard
 
 class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
     '''
@@ -52,9 +55,15 @@ class AttentionEncoder(TorchModel, Encoder):
     An Encoder that takes a Dict of multiple spaces, including Discrete, Box, and Repeated, and uses an attention layer to convert this variable-length input into a fixed-length featurized learned representation.
     """
 
-    def __init__(self, config):
+    def __init__(self, config, is_critic):
         try:
             super().__init__(config)
+            if (not is_critic): # TODO: Is this an actor encoder or a shared encoder?
+                print("BUILDING ATTENTION ENCODER FOR ACTOR (or shared)")
+                self.is_critic_encoder = False;
+            else:
+                print("BUILDING ATTENTION ENCODER FOR CRITIC")
+                self.is_critic_encoder = True
             self.observation_space = config.observation_space
             self.emb_dim = config.emb_dim
             self.recursive = config.recursive
@@ -75,6 +84,9 @@ class AttentionEncoder(TorchModel, Encoder):
             # Set up embedding layers for each element in our observation
             embs = {}
             for n, s in self.observation_space.spaces.items():
+                if (CRITIC_ONLY in s and (not self.is_critic_encoder)):
+                    print("IGNORING CRITIC ONLY DATA ON ACTOR ENCODER")
+                    continue # Ignore critic only information
                 if type(s) is RepeatedCustom:
                     s = s.child_space  # embed layer applies to child space
                 if type(s) is Box:
@@ -96,6 +108,8 @@ class AttentionEncoder(TorchModel, Encoder):
         embeddings = []
         masks = []
         for s in obs.keys():
+            if (CRITIC_ONLY in s and (not self.is_critic_encoder)):
+                continue # Ignore critic only information
             v = obs[s]
             v_s = obs_s[s]
             if type(v_s) is RepeatedCustom:
@@ -143,16 +157,58 @@ class AttentionEncoderConfig(ModelConfig):
         self.recursive = kwargs["model_config_dict"]["recursive"]
         self.output_dims = (self.emb_dim,)
 
-    def build(self, framework):
-        return AttentionEncoder(self)
+    def build(self, framework, is_critic=False):
+        return AttentionEncoder(self, is_critic)
 
     def output_dims(self):
         return self.output_dims
+        
+class PartialObservabilityEncoder(TorchActorCriticEncoder):
+    def __init__(self, config: ModelConfig) -> None:
+        TorchModel.__init__(self, config)
+        Encoder.__init__(self, config)
+
+        if config.shared:
+            self.encoder = config.base_encoder_config.build(framework=self.framework, is_critic=False)
+        else:
+            self.actor_encoder = config.base_encoder_config.build(
+                framework=self.framework,
+                is_critic=False
+            )
+            self.critic_encoder = None
+            if not config.inference_only:
+                self.critic_encoder = config.base_encoder_config.build(
+                    framework=self.framework,
+                    is_critic=True
+                )
+        
+class PartialObservabilityEncoderConfig(ActorCriticEncoderConfig):
+    """
+    A modification of ActorCriticEncoderConfig that allows 
+    """
+    def build(self, framework: str = "torch") -> "Encoder":
+        return PartialObservabilityEncoder(self)
 
 class AttentionPPOCatalog(PPOCatalog):
     """
     A special PPO catalog producing an encoder that handles dictionaries of (potentially Repeated) action spaces in the same manner as https://arxiv.org/abs/1909.07528.
     """
+    
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        model_config_dict: dict,
+    ):
+        super().__init__(
+            observation_space=observation_space,
+            action_space=action_space,
+            model_config_dict=model_config_dict,
+        )
+        self.actor_critic_encoder_config = PartialObservabilityEncoderConfig(
+            base_encoder_config=self._encoder_config,
+            shared=self._model_config_dict["vf_share_layers"],
+        ) # Informs the critic encoder that it's the critic encoder.
 
     @classmethod
     def _get_encoder_config(
@@ -161,3 +217,7 @@ class AttentionPPOCatalog(PPOCatalog):
         **kwargs,
     ):
         return AttentionEncoderConfig(observation_space, **kwargs)
+        
+    # TODO: Test LayerNorm for head
+    # head_fcnet_use_layernorm
+    # https://github.com/ray-project/ray/blob/master/rllib/algorithms/ppo/ppo_catalog.py
