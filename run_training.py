@@ -80,6 +80,7 @@ parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively
 parser.add_argument("--full-transformer", action='store_true') # Use full Transformer layers from PyTorch
 parser.add_argument("--attn-recursive", action='store_true')
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
+parser.add_argument('--use-layernorm', action='store_true') # Use the norm
 parser.add_argument("--batch-size", type=int, default=32768)
 parser.add_argument("--minibatch-size", type=int, default=4096)
 parser.add_argument("--critic-batch-size", type=int, default=32768)
@@ -164,6 +165,7 @@ if (not args.no_custom_arch):
                 "recursive": args.attn_recursive,
                 "head_fcnet_hiddens": tuple(args.fcnet),
                 "vf_share_layers": args.share_layers,
+                "head_fcnet_use_layernorm": args.use_layernorm,
             },
         )
     }
@@ -178,6 +180,8 @@ else:
             model_config=DefaultModelConfig(
                 use_lstm=args.use_lstm,
                 lstm_cell_size=1024,
+                head_fcnet_use_layernorm=args.use_layernorm, # LayerNorm on the head, same as above
+                fcnet_use_layernorm=args.use_layernorm,      # The custom encoder includes LayerNorm by default
             ),
         )
     }
