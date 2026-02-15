@@ -84,8 +84,8 @@ class AttentionEncoder(TorchModel, Encoder):
             # Set up embedding layers for each element in our observation
             embs = {}
             for n, s in self.observation_space.spaces.items():
-                if (CRITIC_ONLY in s and (not self.is_critic_encoder)):
-                    print("IGNORING CRITIC ONLY DATA ON ACTOR ENCODER")
+                if (CRITIC_ONLY in n and (not self.is_critic_encoder)):
+                    print(f"IGNORING CRITIC ONLY DATA: {n} ON ACTOR ENCODER")
                     continue # Ignore critic only information
                 if type(s) is RepeatedCustom:
                     s = s.child_space  # embed layer applies to child space
@@ -209,7 +209,21 @@ class AttentionPPOCatalog(PPOCatalog):
             base_encoder_config=self._encoder_config,
             shared=self._model_config_dict["vf_share_layers"],
         ) # Informs the critic encoder that it's the critic encoder.
-
+        #
+        # Temporary code for adding layer normalization to the head. Will remove when fix is added to master branch.
+        # https://github.com/ray-project/ray/blob/master/rllib/algorithms/ppo/ppo_catalog.py
+        from ray.rllib.core.models.configs import MLPHeadConfig
+        self.vf_head_config = MLPHeadConfig(
+            input_dims=self.latent_dims,
+            hidden_layer_dims=self.pi_and_vf_head_hiddens,
+            hidden_layer_activation=self.pi_and_vf_head_activation,
+            hidden_layer_use_layernorm=self._model_config_dict.get(
+                "head_fcnet_use_layernorm", False
+            ),
+            output_layer_activation="linear",
+            output_layer_dim=1,
+        )
+        
     @classmethod
     def _get_encoder_config(
         cls,
@@ -218,6 +232,47 @@ class AttentionPPOCatalog(PPOCatalog):
     ):
         return AttentionEncoderConfig(observation_space, **kwargs)
         
-    # TODO: Test LayerNorm for head
-    # head_fcnet_use_layernorm
+    # Temporary code for adding layer normalization to the head.
     # https://github.com/ray-project/ray/blob/master/rllib/algorithms/ppo/ppo_catalog.py
+    def build_pi_head(self, framework: str):
+        from ray.rllib.algorithms.ppo.ppo_catalog import _check_if_diag_gaussian
+        from ray.rllib.core.models.configs import (
+            FreeLogStdMLPHeadConfig,
+            MLPHeadConfig,
+        )
+        # Get action_distribution_cls to find out about the output dimension for pi_head
+        action_distribution_cls = self.get_action_dist_cls(framework=framework)
+        if self._model_config_dict["free_log_std"]:
+            _check_if_diag_gaussian(
+                action_distribution_cls=action_distribution_cls, framework=framework
+            )
+            is_diag_gaussian = True
+        else:
+            is_diag_gaussian = _check_if_diag_gaussian(
+                action_distribution_cls=action_distribution_cls,
+                framework=framework,
+                no_error=True,
+            )
+        required_output_dim = action_distribution_cls.required_input_dim(
+            space=self.action_space, model_config=self._model_config_dict
+        )
+        # Now that we have the action dist class and number of outputs, we can define
+        # our pi-config and build the pi head.
+        pi_head_config_class = (
+            FreeLogStdMLPHeadConfig
+            if self._model_config_dict["free_log_std"]
+            else MLPHeadConfig
+        )
+        self.pi_head_config = pi_head_config_class(
+            input_dims=self.latent_dims,
+            hidden_layer_dims=self.pi_and_vf_head_hiddens,
+            hidden_layer_activation=self.pi_and_vf_head_activation,
+            hidden_layer_use_layernorm=self._model_config_dict.get(
+                "head_fcnet_use_layernorm", False
+            ),
+            output_layer_dim=required_output_dim,
+            output_layer_activation="linear",
+            clip_log_std=is_diag_gaussian,
+            log_std_clip_param=self._model_config_dict.get("log_std_clip_param", 20),
+        )
+        return self.pi_head_config.build(framework=framework)
