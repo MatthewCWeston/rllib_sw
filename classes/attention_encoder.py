@@ -132,7 +132,8 @@ class AttentionEncoder(TorchModel, Encoder):
         mask = torch.concatenate(masks, dim=1)  # batch_size, seq_len
         for i in range(self.attn_layers):
             layer = self.mha[0] if self.recursive else self.mha[i]
-            x = layer(x, src_key_padding_mask=mask)
+            #x = layer(x, src_key_padding_mask=mask)
+            x = layer(x, src_key_padding_mask=(1-mask))
         # Masked mean-pooling.
         mask = mask.unsqueeze(dim=2)
         x = x * mask  # Mask x to exclude nonexistent entries from mean pool op
