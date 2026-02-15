@@ -79,8 +79,9 @@ class CurriculumLearningCallback(RLlibCallback):
             pt_key, pt_val = self.promotion_thresholds[k]
             # Store the current task inside the metrics logger in our Algorithm.
             current_task = metrics_logger.peek(f"{k}_current_env_task")
-            if (current_task==self.num_increments):
-                return # Difficulty at maximum
+            if ((current_task==self.num_increments) and 
+                (self.env_config.get('probabilistic_difficulty', False)==False)):
+                return # Difficulty at maximum and prob. diff isn't imposing its own cap
 
             # Note, in the first callback executions there may be no completed episode
             # (and therefore no episode return) reported. In this case we will skip the

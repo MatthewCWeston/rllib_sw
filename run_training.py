@@ -80,6 +80,7 @@ parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively
 parser.add_argument("--full-transformer", action='store_true') # Use full Transformer layers from PyTorch
 parser.add_argument("--attn-recursive", action='store_true')
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
+parser.add_argument("--activation-fn", type=str, default='relu') # Activation function for the network head.
 parser.add_argument('--use-layernorm', action='store_true') # Use the norm
 parser.add_argument("--batch-size", type=int, default=32768)
 parser.add_argument("--minibatch-size", type=int, default=4096)
@@ -90,6 +91,8 @@ parser.add_argument("--restore-checkpoint", type=str)
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
 parser.add_argument("--use-eppo", action='store_true') # Don't restore value function weights
 parser.add_argument("--grad-clip", type=float, default=100.0)
+parser.add_argument("--kl-loss", action='store_true')
+parser.add_argument("--entropy-coeff", type=float, default=0.0)
 
 args = parser.parse_args()
 
@@ -116,7 +119,8 @@ config = (
         gamma=args.gamma,
         lr=args.lr,
         vf_clip_param=float(args.vf_clip),
-        use_kl_loss=False,  # From hyperparameter search
+        use_kl_loss=args.kl_loss,
+        entropy_coeff=args.entropy_coeff,
         lambda_=args.lambda_,
         learner_class=learner_class,
         learner_config_dict={
@@ -164,6 +168,7 @@ if (not args.no_custom_arch):
                 "attn_ff_dim": args.attn_ff_dim,
                 "recursive": args.attn_recursive,
                 "head_fcnet_hiddens": tuple(args.fcnet),
+                "head_fcnet_activation": args.activation_fn,
                 "vf_share_layers": args.share_layers,
                 "head_fcnet_use_layernorm": args.use_layernorm,
             },

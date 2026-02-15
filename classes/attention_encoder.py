@@ -37,14 +37,14 @@ class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
         self.norm_ff = torch.nn.LayerNorm(emb_dim)
         self.residual = nn.Sequential(
             nn.Linear(emb_dim, h_dim),
-            nn.ReLU(),
+            nn.GELU(), # Apparently just plain better than ReLU here.
             nn.Dropout(dropout),
             nn.Linear(h_dim, emb_dim),
             nn.Dropout(dropout),
         )
     def forward(self, x, src_key_padding_mask):
         x_attn, _ = self.mha(x, x, x, key_padding_mask=src_key_padding_mask, need_weights=False)
-        x_attn = F.dropout(x_attn, self.dropout)
+        #x_attn = F.dropout(x_attn, self.dropout) # TODO: Remove this; redundant with mha?
         x = self.norm_attn(x_attn + x)
         x_ff = self.residual(x)
         x = self.norm_ff(x_ff + x)
@@ -59,10 +59,8 @@ class AttentionEncoder(TorchModel, Encoder):
         try:
             super().__init__(config)
             if (not is_critic): # TODO: Is this an actor encoder or a shared encoder?
-                print("BUILDING ATTENTION ENCODER FOR ACTOR (or shared)")
                 self.is_critic_encoder = False;
             else:
-                print("BUILDING ATTENTION ENCODER FOR CRITIC")
                 self.is_critic_encoder = True
             self.observation_space = config.observation_space
             self.emb_dim = config.emb_dim
@@ -85,7 +83,6 @@ class AttentionEncoder(TorchModel, Encoder):
             embs = {}
             for n, s in self.observation_space.spaces.items():
                 if (CRITIC_ONLY in n and (not self.is_critic_encoder)):
-                    print(f"IGNORING CRITIC ONLY DATA: {n} ON ACTOR ENCODER")
                     continue # Ignore critic only information
                 if type(s) is RepeatedCustom:
                     s = s.child_space  # embed layer applies to child space
@@ -276,4 +273,34 @@ class AttentionPPOCatalog(PPOCatalog):
             clip_log_std=is_diag_gaussian,
             log_std_clip_param=self._model_config_dict.get("log_std_clip_param", 20),
         )
-        return self.pi_head_config.build(framework=framework)
+        
+        pi_head = self.pi_head_config.build(framework=framework)
+        ''' Temporary code until RLlib adds LeakyReLU to its supported activation functions
+        from ray.rllib.models.utils import get_activation_fn
+        old_act_class = get_activation_fn(self.pi_and_vf_head_activation, framework='torch')
+        new_layers = []
+        for layer in pi_head.net.mlp:
+            if isinstance(layer, old_act_class):
+                # Replace with LeakyReLU (adjust negative_slope if desired)
+                new_layers.append(nn.LeakyReLU())
+            else:
+                new_layers.append(layer)
+        pi_head.net.mlp = nn.Sequential(*new_layers) #'''
+        return pi_head
+        
+    '''
+    def build_vf_head(self, framework: str):
+        # Temporary code until RLlib adds LeakyReLU to its supported activation functions
+        from ray.rllib.models.utils import get_activation_fn
+        vf_head = self.vf_head_config.build(framework=framework)
+        old_act_class = get_activation_fn(self.pi_and_vf_head_activation, framework='torch')
+        new_layers = []
+        for layer in vf_head.net.mlp:
+            if isinstance(layer, old_act_class):
+                # Replace with LeakyReLU (adjust negative_slope if desired)
+                new_layers.append(nn.LeakyReLU())
+            else:
+                new_layers.append(layer)
+        vf_head.net.mlp = nn.Sequential(*new_layers)
+        return vf_head #'''
+        
