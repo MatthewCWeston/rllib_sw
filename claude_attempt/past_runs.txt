@@ -1,0 +1,109 @@
+# No reward shaping
+
+Starting training at stage 0: {'grav_multiplier': 0.0, 'size_multiplier': 3.0, 'target_speed': 0.0, 'target_ammo': 0.0}
+Update    10 | Episodes     20 | Stage 0 | Mean reward: +0.350 | Policy loss: -0.0001 | Value loss: 0.0000 | Entropy: 2.4612
+Update    20 | Episodes     40 | Stage 0 | Mean reward: +0.350 | Policy loss: -0.0051 | Value loss: 0.0038 | Entropy: 2.3580
+Update    30 | Episodes     60 | Stage 0 | Mean reward: +0.350 | Policy loss: -0.0028 | Value loss: 0.0037 | Entropy: 2.3933
+Update    40 | Episodes     80 | Stage 0 | Mean reward: +0.425 | Policy loss: -0.0036 | Value loss: 0.0142 | Entropy: 2.2927
+
+>>> Advancing to stage 1: {'grav_multiplier': 0.3, 'size_multiplier': 3.0, 'target_speed': 0.0, 'target_ammo': 0.0}
+Update    50 | Episodes    100 | Stage 1 | Mean reward: +nan | Policy loss: -0.0030 | Value loss: 0.0076 | Entropy: 2.2479
+  Saved checkpoint to checkpoints/spacewar_stage1_update50.pt
+Update    60 | Episodes    120 | Stage 1 | Mean reward: +0.550 | Policy loss: -0.0031 | Value loss: 0.0038 | Entropy: 2.3444
+Update    70 | Episodes    141 | Stage 1 | Mean reward: +0.561 | Policy loss: -0.0052 | Value loss: 0.0109 | Entropy: 2.1776
+Update    80 | Episodes    162 | Stage 1 | Mean reward: +0.581 | Policy loss: -0.0020 | Value loss: 0.0076 | Entropy: 2.1164
+Update    90 | Episodes    183 | Stage 1 | Mean reward: +0.566 | Policy loss: -0.0039 | Value loss: 0.0035 | Entropy: 2.2813
+
+>>> Advancing to stage 2: {'grav_multiplier': 1.0, 'size_multiplier': 2.0, 'target_speed': 0.0, 'target_ammo': 0.0}
+Update   100 | Episodes    206 | Stage 2 | Mean reward: +0.000 | Policy loss: -0.0034 | Value loss: 0.0196 | Entropy: 2.0961
+  Saved checkpoint to checkpoints/spacewar_stage2_update100.pt
+Update   110 | Episodes    235 | Stage 2 | Mean reward: -0.029 | Policy loss: -0.0038 | Value loss: 0.0149 | Entropy: 2.2173
+Update   120 | Episodes    260 | Stage 2 | Mean reward: -0.017 | Policy loss: -0.0053 | Value loss: 0.0062 | Entropy: 2.3008
+Update   130 | Episodes    286 | Stage 2 | Mean reward: +0.058 | Policy loss: -0.0046 | Value loss: 0.0010 | Entropy: 2.1290
+Update   140 | Episodes    310 | Stage 2 | Mean reward: +0.150 | Policy loss: -0.0044 | Value loss: 0.0045 | Entropy: 2.2495
+Update   150 | Episodes    334 | Stage 2 | Mean reward: +0.340 | Policy loss: -0.0063 | Value loss: 0.0044 | Entropy: 2.2083
+  Saved checkpoint to checkpoints/spacewar_stage2_update150.pt
+Update   160 | Episodes    360 | Stage 2 | Mean reward: +0.300 | Policy loss: -0.0043 | Value loss: 0.0062 | Entropy: 2.1837
+Update   170 | Episodes    387 | Stage 2 | Mean reward: +0.170 | Policy loss: -0.0049 | Value loss: 0.0033 | Entropy: 2.2503
+Update   180 | Episodes    413 | Stage 2 | Mean reward: +0.050 | Policy loss: -0.0033 | Value loss: 0.0058 | Entropy: 2.3037
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Reward shaping
+
+arget_ammo': 0.0}
+Update    10 | Episodes     20 | Stage 0 | Mean reward: +0.150 | Policy loss: -0.0040 | Value loss: 0.0044 | Entropy: 2.4602
+Update    20 | Episodes     40 | Stage 0 | Mean reward: +0.200 | Policy loss: -0.0075 | Value loss: 0.0038 | Entropy: 2.4400
+Update    30 | Episodes     60 | Stage 0 | Mean reward: +0.250 | Policy loss: -0.0038 | Value loss: 0.0265 | Entropy: 2.3797
+Update    40 | Episodes     80 | Stage 0 | Mean reward: +0.287 | Policy loss: -0.0043 | Value loss: 0.0046 | Entropy: 2.2994
+Update    50 | Episodes    100 | Stage 0 | Mean reward: +0.320 | Policy loss: -0.0024 | Value loss: 0.0041 | Entropy: 2.2855
+  Saved checkpoint to checkpoints/spacewar_stage0_update50.pt
+Update    60 | Episodes    121 | Stage 0 | Mean reward: +0.370 | Policy loss: -0.0069 | Value loss: 0.0041 | Entropy: 2.3948
+
+>>> Advancing to stage 1: {'grav_multiplier': 0.3, 'size_multiplier': 3.0, 'target_speed': 0.0, 'target_ammo': 0.0}
+Update    70 | Episodes    144 | Stage 1 | Mean reward: +0.467 | Policy loss: -0.0052 | Value loss: 0.0072 | Entropy: 2.3703
+Update    80 | Episodes    164 | Stage 1 | Mean reward: +0.771 | Policy loss: -0.0050 | Value loss: 0.0120 | Entropy: 2.3549
+Update    90 | Episodes    185 | Stage 1 | Mean reward: +0.964 | Policy loss: -0.0041 | Value loss: 0.0090 | Entropy: 2.3045
+Update   100 | Episodes    205 | Stage 1 | Mean reward: +1.039 | Policy loss: -0.0036 | Value loss: 0.0136 | Entropy: 2.3105
+  Saved checkpoint to checkpoints/spacewar_stage1_update100.pt
+Update   110 | Episodes    226 | Stage 1 | Mean reward: +1.052 | Policy loss: -0.0033 | Value loss: 0.0036 | Entropy: 2.3554
+
+>>> Advancing to stage 2: {'grav_multiplier': 1.0, 'size_multiplier': 2.0, 'target_speed': 0.0, 'target_ammo': 0.0}
+Update   120 | Episodes    249 | Stage 2 | Mean reward: +0.450 | Policy loss: -0.0025 | Value loss: 0.0038 | Entropy: 2.3351
+Update   130 | Episodes    272 | Stage 2 | Mean reward: +0.326 | Policy loss: -0.0056 | Value loss: 0.0042 | Entropy: 2.1952
+Update   140 | Episodes    296 | Stage 2 | Mean reward: +0.269 | Policy loss: -0.0062 | Value loss: 0.0135 | Entropy: 2.2220
+Update   150 | Episodes    322 | Stage 2 | Mean reward: +0.247 | Policy loss: -0.0077 | Value loss: 0.0182 | Entropy: 2.1577
+  Saved checkpoint to checkpoints/spacewar_stage2_update150.pt
+Update   160 | Episodes    345 | Stage 2 | Mean reward: +0.220 | Policy loss: -0.0026 | Value loss: 0.0146 | Entropy: 2.3046
+Update   170 | Episodes    366 | Stage 2 | Mean reward: +0.270 | Policy loss: -0.0053 | Value loss: 0.0045 | Entropy: 2.1796
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Reward shaping with the speed and episode length configured
+
+Starting training at stage 0: {'grav_multiplier': 0.0, 'size_multiplier': 3.0, 'target_speed': 0.0, 'target_ammo': 0.0}
+Update    10 | Episodes     55 | Stage 0 | Mean reward: +0.073 | Policy loss: -0.0033 | Value loss: 0.0008 | Entropy: 2.4655
+
+>>> Advancing to stage 1: {'grav_multiplier': 0.3, 'size_multiplier': 3.0, 'target_speed': 0.0, 'target_ammo': 0.0}
+Update    20 | Episodes    116 | Stage 1 | Mean reward: +1.067 | Policy loss: -0.0056 | Value loss: 0.0227 | Entropy: 2.4071
+Update    30 | Episodes    189 | Stage 1 | Mean reward: +1.477 | Policy loss: -0.0031 | Value loss: 0.0255 | Entropy: 2.3536
+
+>>> Advancing to stage 2: {'grav_multiplier': 1.0, 'size_multiplier': 2.0, 'target_speed': 0.0, 'target_ammo': 0.0}
+Update    40 | Episodes    298 | Stage 2 | Mean reward: +0.155 | Policy loss: -0.0038 | Value loss: 0.0217 | Entropy: 2.2989
+
+>>> Advancing to stage 3: {'grav_multiplier': 1.0, 'size_multiplier': 1.0, 'target_speed': 0.0, 'target_ammo': 0.0}
+Update    50 | Episodes    408 | Stage 3 | Mean reward: +0.154 | Policy loss: -0.0041 | Value loss: 0.0181 | Entropy: 2.2398
+  Saved checkpoint to checkpoints/spacewar_stage3_update50.pt
+Update    60 | Episodes    507 | Stage 3 | Mean reward: +0.050 | Policy loss: -0.0049 | Value loss: 0.0171 | Entropy: 2.2711
+Update    70 | Episodes    607 | Stage 3 | Mean reward: +0.330 | Policy loss: -0.0078 | Value loss: 0.0251 | Entropy: 2.1482
+
+>>> Advancing to stage 4: {'grav_multiplier': 1.0, 'size_multiplier': 1.0, 'target_speed': 0.3, 'target_ammo': 0.0}
+Update    80 | Episodes    692 | Stage 4 | Mean reward: +0.131 | Policy loss: -0.0048 | Value loss: 0.0279 | Entropy: 2.1760
+Update    90 | Episodes    768 | Stage 4 | Mean reward: +0.290 | Policy loss: -0.0054 | Value loss: 0.0083 | Entropy: 2.1667
+Update   100 | Episodes    846 | Stage 4 | Mean reward: +0.210 | Policy loss: -0.0047 | Value loss: 0.0177 | Entropy: 2.1818
+  Saved checkpoint to checkpoints/spacewar_stage4_update100.pt
+
+>>> Advancing to stage 5: {'grav_multiplier': 1.0, 'size_multiplier': 1.0, 'target_speed': 1.0, 'target_ammo': 0.0}
+Update   110 | Episodes    931 | Stage 5 | Mean reward: -0.057 | Policy loss: -0.0062 | Value loss: 0.0246 | Entropy: 2.1508
+Update   120 | Episodes   1023 | Stage 5 | Mean reward: -0.070 | Policy loss: -0.0058 | Value loss: 0.0301 | Entropy: 2.1248
+Update   130 | Episodes   1118 | Stage 5 | Mean reward: -0.020 | Policy loss: -0.0063 | Value loss: 0.0284 | Entropy: 2.1880
+Update   140 | Episodes   1212 | Stage 5 | Mean reward: +0.090 | Policy loss: -0.0075 | Value loss: 0.0212 | Entropy: 2.1804
+Update   150 | Episodes   1306 | Stage 5 | Mean reward: +0.010 | Policy loss: -0.0083 | Value loss: 0.0281 | Entropy: 2.1809
+  Saved checkpoint to checkpoints/spacewar_stage5_update150.pt
+Update   160 | Episodes   1410 | Stage 5 | Mean reward: -0.180 | Policy loss: -0.0084 | Value loss: 0.0118 | Entropy: 2.1814
+Update   170 | Episodes   1500 | Stage 5 | Mean reward: -0.120 | Policy loss: -0.0079 | Value loss: 0.0228 | Entropy: 2.1326
+Update   180 | Episodes   1594 | Stage 5 | Mean reward: -0.160 | Policy loss: -0.0080 | Value loss: 0.0304 | Entropy: 2.0822
+Update   190 | Episodes   1680 | Stage 5 | Mean reward: -0.020 | Policy loss: -0.0081 | Value loss: 0.0173 | Entropy: 2.1993
+Update   200 | Episodes   1763 | Stage 5 | Mean reward: +0.120 | Policy loss: -0.0065 | Value loss: 0.0197 | Entropy: 2.1633
+  Saved checkpoint to checkpoints/spacewar_stage5_update200.pt
+Update   210 | Episodes   1861 | Stage 5 | Mean reward: -0.070 | Policy loss: -0.0092 | Value loss: 0.0337 | Entropy: 2.1265
+Update   220 | Episodes   1953 | Stage 5 | Mean reward: +0.160 | Policy loss: -0.0082 | Value loss: 0.0227 | Entropy: 2.1293
+Update   230 | Episodes   2041 | Stage 5 | Mean reward: +0.130 | Policy loss: -0.0057 | Value loss: 0.0273 | Entropy: 2.1297
+Update   240 | Episodes   2142 | Stage 5 | Mean reward: -0.020 | Policy loss: -0.0067 | Value loss: 0.0332 | Entropy: 2.0806
+Update   250 | Episodes   2237 | Stage 5 | Mean reward: -0.090 | Policy loss: -0.0071 | Value loss: 0.0206 | Entropy: 2.1750
+  Saved checkpoint to checkpoints/spacewar_stage5_update250.pt
+Update   260 | Episodes   2329 | Stage 5 | Mean reward: +0.070 | Policy loss: -0.0095 | Value loss: 0.0176 | Entropy: 2.1496
+Update   270 | Episodes   2420 | Stage 5 | Mean reward: +0.050 | Policy loss: -0.0088 | Value loss: 0.0365 | Entropy: 2.1126
+Update   280 | Episodes   2516 | Stage 5 | Mean reward: -0.110 | Policy loss: -0.0087 | Value loss: 0.0257 | Entropy: 2.1453
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# Longer batch size to mitigate stagnation at stage 5
