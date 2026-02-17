@@ -4,3 +4,4 @@
 /hyperparameter_search/results/*
 /hyperparameter_opt/analysis/.~lock*
 /claude_attempt/checkpoints/*
+/claude_attempt/training_log.csv
