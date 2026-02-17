@@ -74,7 +74,7 @@ class AttentionEncoder(TorchModel, Encoder):
                         dim_feedforward=config.attn_ff_dim, nhead=4, batch_first=True))
                 else:
                     mhas.append(SimpleTransformerLayer(self.emb_dim, 4,
-                        h_dim=config.attn_ff_dim))
+                        h_dim=config.attn_ff_dim, dropout=config.dropout))
                 if (self.recursive): # If recursive, only create one layer
                     break
             self.mha = nn.ModuleList(mhas)
@@ -153,6 +153,7 @@ class AttentionEncoderConfig(ModelConfig):
         self.full_transformer = kwargs["model_config_dict"]["full_transformer"]
         self.attn_layers = kwargs["model_config_dict"]["attn_layers"]
         self.recursive = kwargs["model_config_dict"]["recursive"]
+        self.dropout = kwargs["model_config_dict"].get("dropout", 0.1)
         self.output_dims = (self.emb_dim,)
 
     def build(self, framework, is_critic=False):

@@ -79,6 +79,7 @@ parser.add_argument("--attn-ff-dim", type=int, default=2048) # Feedforward compo
 parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively run our attention layer
 parser.add_argument("--full-transformer", action='store_true') # Use full Transformer layers from PyTorch
 parser.add_argument("--attn-recursive", action='store_true')
+parser.add_argument("--dropout", type=float, default=0.1) # In theory, this shouldn't help. In practice, it helps.
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
 parser.add_argument("--activation-fn", type=str, default='relu') # Activation function for the network head.
 parser.add_argument('--use-layernorm', action='store_true') # Use the norm
@@ -167,6 +168,7 @@ if (not args.no_custom_arch):
                 "attn_layers": args.attn_layers,
                 "attn_ff_dim": args.attn_ff_dim,
                 "recursive": args.attn_recursive,
+                "dropout": args.dropout,
                 "head_fcnet_hiddens": tuple(args.fcnet),
                 "head_fcnet_activation": args.activation_fn,
                 "vf_share_layers": args.share_layers,
