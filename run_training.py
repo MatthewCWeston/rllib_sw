@@ -95,6 +95,11 @@ parser.add_argument("--grad-clip", type=float, default=100.0)
 parser.add_argument("--kl-loss", action='store_true')
 parser.add_argument("--entropy-coeff", type=float, default=0.0)
 
+parser.add_argument("--gpus-per-learner", type=float, default=1.0) # Remainder will be given to env runners
+parser.add_argument("--cpus-per-env-runner", type=float, default=1.0) # Remainder will be given to env runners
+parser.add_argument("--envs-per-env-runner", type=int, default=4)
+parser.add_argument("--remote-worker-envs", action='store_true')
+
 args = parser.parse_args()
 
 env_name = args.env_name
@@ -130,6 +135,16 @@ config = (
         },
         grad_clip=args.grad_clip if hasattr(args, 'grad_clip') else None,
         grad_clip_by="global_norm",
+    )
+    .learners(
+        num_gpus_per_learner=args.gpus_per_learner,
+    )
+    .env_runners(
+        num_cpus_per_env_runner=args.cpus_per_env_runner,
+        num_gpus_per_env_runner=0 if args.num_env_runners==0 else (torch.cuda.device_count() - args.gpus_per_learner) / args.num_env_runners,
+        num_envs_per_env_runner=args.envs_per_env_runner,
+        num_env_runners=args.num_env_runners,
+        remote_worker_envs=args.remote_worker_envs,
     )
 )
 
@@ -176,9 +191,6 @@ if (not args.no_custom_arch):
             },
         )
     }
-    config.env_runners(
-        num_env_runners=args.num_env_runners,
-    )
 else:
     print('Using default architecture')
     specs = {
@@ -193,7 +205,6 @@ else:
         )
     }
     config.env_runners(
-        num_env_runners=args.num_env_runners,
         env_to_module_connector=(
             lambda env, spaces, device: FlattenObservations(multi_agent=ma_env)
         ),
