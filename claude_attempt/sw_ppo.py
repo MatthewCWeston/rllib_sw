@@ -119,6 +119,10 @@ class PPOTrainer:
         t_log_probs = torch.tensor(all_log_probs, dtype=torch.float32)
         t_advantages = torch.tensor(all_advantages, dtype=torch.float32)
         t_returns = torch.tensor(all_returns, dtype=torch.float32)
+        
+        # Normalize advantages 
+        t_advantages -= t_advantages.mean()
+        t_advantages /= t_advantages.std()
 
         indices = np.arange(n)
         stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "n_updates": 0}

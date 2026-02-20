@@ -73,13 +73,13 @@ class SW_1v1_env_singleplayer(gym.Env):
         self.speed = env_config.get('speed', 1.0)
         self.size = env_config.get('render_size', DEFAULT_RENDER_SIZE)
         # Gravity multiplier
-        self.grav_multiplier = self.true_grav_multiplier = env_config.get('grav_multiplier', 1.0)
+        self.grav_multiplier = env_config.get('grav_multiplier', 1.0)
         # Target size multiplier
-        self.size_multiplier = self.true_size_multiplier = env_config.get('size_multiplier', 1.0)
+        self.size_multiplier = env_config.get('size_multiplier', 1.0)
         # Target speed multiplier. A proportion of the stable orbital velocity
-        self.target_speed = self.true_target_speed = env_config.get('target_speed', 0.0)
+        self.target_speed = env_config.get('target_speed', 0.0)
         self.elliptical = env_config.get('elliptical', True)
-        self.target_ammo = self.true_target_ammo = env_config.get('target_ammo', 0.0)
+        self.target_ammo = env_config.get('target_ammo', 0.0)
         # Rendering
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'

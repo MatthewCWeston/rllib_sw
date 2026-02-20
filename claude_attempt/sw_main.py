@@ -5,45 +5,39 @@ import os
 import multiprocessing as mp
 from multiprocessing import shared_memory
 
-from sw_curriculum import curriculum_stages
-from sw_agent import SpaceWarNet
 from sw_logging import TrainingDashboard
-from sw_env import SW_1v1_env_singleplayer, BASE_REWARD
 from sw_ppo import RolloutBuffer, PPOTrainer
 from environments.SpaceWar_constants import NUM_MISSILES
+from sw_env import BASE_REWARD
 
-def make_env(stage):
-    return SW_1v1_env_singleplayer({
+def make_env(stage, target_env, curriculum):
+    return target_env({
         "egocentric": True,
         "speed": 5.0,
         "ep_length": 4096,
-        **curriculum_stages[stage],
+        **curriculum[stage],
     })
     
-def get_env_constants():
-    env = make_env(0)
-    OBS_SHAPES = { k: v.shape for k, v in env.reset()[0][0].items() }
-    OBS_SIZE = sum(np.prod(s) for s in OBS_SHAPES.values()) # total floats for one obs
-    ACT_COUNT = env.action_spaces[0].shape[0] # Number of MultiDiscrete actions taken
-    return OBS_SHAPES, OBS_SIZE, ACT_COUNT
-    
-OBS_SHAPES, OBS_SIZE, ACT_COUNT = get_env_constants()
-RESULT_SIZE = OBS_SIZE + 3 # Shared result layout per worker: [obs...] [reward] [done] [base_reward]
+def get_env_constants(target_env, curriculum):
+    env = make_env(0, target_env, curriculum)
+    obs_shapes = { k: v.shape for k, v in env.reset()[0][0].items() }
+    obs_size = sum(np.prod(s) for s in obs_shapes.values()) # total floats for one obs
+    act_count = env.action_spaces[0].shape[0] # Number of MultiDiscrete actions taken
+    return obs_shapes, obs_size, act_count
 
-
-def obs_dict_to_numpy(obs_dict):
-    """Flatten an obs dict into a 1-D float32 array matching OBS_SHAPES order."""
+def obs_dict_to_numpy(obs_dict, obs_shapes):
+    """Flatten an obs dict into a 1-D float32 array matching obs_shapes order."""
     parts = []
-    for key in OBS_SHAPES:
+    for key in obs_shapes:
         parts.append(np.asarray(obs_dict[key], dtype=np.float32).ravel())
     return np.concatenate(parts)
 
 
-def numpy_to_obs_dict(arr):
+def numpy_to_obs_dict(arr, obs_shapes):
     """Reconstruct a {key: tensor} dict from a flat float32 array."""
     obs = {}
     offset = 0
-    for key, shape in OBS_SHAPES.items():
+    for key, shape in obs_shapes.items():
         size = int(np.prod(shape))
         obs[key] = torch.from_numpy(arr[offset : offset + size].reshape(shape).copy())
         offset += size
@@ -55,6 +49,9 @@ def numpy_to_obs_dict(arr):
 def env_worker(
     worker_id: int,
     initial_stage: int,
+    target_env,
+    curriculum,
+    obs_shapes, obs_size, act_count:int, result_size:int,
     result_shm_name: str,   # shared memory block the worker WRITES obs/reward into
     action_shm_name: str,   # shared memory block the worker READS actions from
     action_event: mp.Event, # main  -> worker: "action is ready"
@@ -66,22 +63,22 @@ def env_worker(
     act_shm = shared_memory.SharedMemory(name=action_shm_name)
 
     # Numpy views directly into the shared buffers (zero-copy)
-    result_arr = np.ndarray((RESULT_SIZE,),  dtype=np.float32, buffer=res_shm.buf)
-    action_arr = np.ndarray((ACT_COUNT,),            dtype=np.int32,
+    result_arr = np.ndarray((result_size,),  dtype=np.float32, buffer=res_shm.buf)
+    action_arr = np.ndarray((act_count,),            dtype=np.int32,
                              buffer=act_shm.buf,
-                             offset=worker_id * ACT_COUNT * np.dtype(np.int32).itemsize)
+                             offset=worker_id * act_count * np.dtype(np.int32).itemsize)
 
     def write_result(obs_flat, reward, done, base_reward):
-        result_arr[:OBS_SIZE]    = obs_flat
-        result_arr[OBS_SIZE]     = reward
-        result_arr[OBS_SIZE + 1] = float(done)
-        result_arr[OBS_SIZE + 2] = base_reward
+        result_arr[:obs_size]    = obs_flat
+        result_arr[obs_size]     = reward
+        result_arr[obs_size + 1] = float(done)
+        result_arr[obs_size + 2] = base_reward
 
     # ── Boot env ──────────────────────────────────────────────────────────
     stage = initial_stage
-    env   = make_env(stage)
+    env   = make_env(stage, target_env, curriculum)
     raw_obs, _ = env.reset()
-    write_result(obs_dict_to_numpy(raw_obs[0]), 0.0, False, 0.0)
+    write_result(obs_dict_to_numpy(raw_obs[0], obs_shapes), 0.0, False, 0.0)
     result_event.set()   # signal: initial obs ready
 
     # ── Main loop ─────────────────────────────────────────────────────────
@@ -101,9 +98,9 @@ def env_worker(
         # ── Stage-change sentinel: action = [-2, new_stage, 0] ───────────
         if cmd == -2:
             stage = int(action[1])
-            env   = make_env(stage)
+            env   = make_env(stage, target_env, curriculum)
             raw_obs, _ = env.reset()
-            write_result(obs_dict_to_numpy(raw_obs[0]), 0.0, False, 0.0)
+            write_result(obs_dict_to_numpy(raw_obs[0], obs_shapes), 0.0, False, 0.0)
             result_event.set()
             continue
 
@@ -111,13 +108,13 @@ def env_worker(
         next_raw, rewards, term, trunc, info = env.step({0: action})
         reward      = float(rewards[0])
         done        = term["__all__"] or trunc["__all__"]
-        base_reward = float(info[BASE_REWARD])
+        base_reward = float(info.get(BASE_REWARD, reward))
 
         if done:
             # Reuse existing env object - just reset it
             next_raw, _ = env.reset()
 
-        write_result(obs_dict_to_numpy(next_raw[0]), reward, done, base_reward)
+        write_result(obs_dict_to_numpy(next_raw[0], obs_shapes), reward, done, base_reward)
         result_event.set()
 
 
@@ -129,27 +126,29 @@ class SharedMemoryEnvManager:
     synchronisation signals (Events) cross the process boundary.
     """
 
-    def __init__(self, num_envs: int, stage: int):
+    def __init__(self, num_envs: int, stage: int, target_env, curriculum):
         self.num_envs = num_envs
+        self.obs_shapes, self.obs_size, act_count = get_env_constants(target_env, curriculum)
+        result_size = self.obs_size + 3 # Shared result layout per worker: [obs...] [reward] [done] [base_reward]
 
         # ── Allocate one result block per worker ──────────────────────────
         self._res_shms: list[shared_memory.SharedMemory] = []
         self._res_arrs: list[np.ndarray]                 = []
         for _ in range(num_envs):
             shm = shared_memory.SharedMemory(
-                create=True, size=int(RESULT_SIZE * np.dtype(np.float32).itemsize)
+                create=True, size=int(result_size * np.dtype(np.float32).itemsize)
             )
-            arr = np.ndarray((RESULT_SIZE,), dtype=np.float32, buffer=shm.buf)
+            arr = np.ndarray((result_size,), dtype=np.float32, buffer=shm.buf)
             self._res_shms.append(shm)
             self._res_arrs.append(arr)
 
         # ── Single shared action block for all workers ────────────────────
         # Layout: worker_i reads int32[i*3 : i*3+3]
         self._act_shm = shared_memory.SharedMemory(
-            create=True, size=int(num_envs * ACT_COUNT * np.dtype(np.int32).itemsize)
+            create=True, size=int(num_envs * act_count * np.dtype(np.int32).itemsize)
         )
         self._act_arr = np.ndarray(
-            (num_envs, ACT_COUNT), dtype=np.int32, buffer=self._act_shm.buf
+            (num_envs, act_count), dtype=np.int32, buffer=self._act_shm.buf
         )
 
         # ── Per-worker synchronisation events ─────────────────────────────
@@ -164,6 +163,8 @@ class SharedMemoryEnvManager:
                 target=env_worker,
                 args=(
                     i, stage,
+                    target_env, curriculum,
+                    self.obs_shapes, self.obs_size, act_count, result_size,
                     self._res_shms[i].name,
                     self._act_shm.name,
                     self._action_events[i],
@@ -180,14 +181,14 @@ class SharedMemoryEnvManager:
         for i in range(num_envs):
             self._result_events[i].wait()
             self._result_events[i].clear()
-            self.current_obs[i] = numpy_to_obs_dict(self._res_arrs[i][:OBS_SIZE])
+            self.current_obs[i] = numpy_to_obs_dict(self._res_arrs[i][:self.obs_size], self.obs_shapes)
 
     # ── Inference helpers ─────────────────────────────────────────────────
 
     def get_batched_obs(self) -> dict[str, torch.Tensor]:
         """Stack current obs across all envs - used for batched inference."""
         batched = {}
-        for key in OBS_SHAPES:
+        for key in self.obs_shapes:
             batched[key] = torch.stack([o[key] for o in self.current_obs], dim=0)
         return batched
 
@@ -215,10 +216,10 @@ class SharedMemoryEnvManager:
             self._result_events[i].clear()
 
             arr         = self._res_arrs[i]
-            obs         = numpy_to_obs_dict(arr[:OBS_SIZE])
-            reward      = float(arr[OBS_SIZE])
-            done        = bool(arr[OBS_SIZE + 1])
-            base_reward = float(arr[OBS_SIZE + 2])
+            obs         = numpy_to_obs_dict(arr[:self.obs_size], self.obs_shapes)
+            reward      = float(arr[self.obs_size])
+            done        = bool(arr[self.obs_size + 1])
+            base_reward = float(arr[self.obs_size + 2])
 
             self.current_obs[i] = obs
             results.append((obs, reward, done, base_reward))
@@ -229,20 +230,20 @@ class SharedMemoryEnvManager:
     def set_stage(self, stage: int):
         """Tell all workers to rebuild their env at the new curriculum stage."""
         for i in range(self.num_envs):
-            self._act_arr[i] = [-2, stage, 0]   # sentinel
+            self._act_arr[i][:2] = [-2, stage]   # sentinel
         for i in range(self.num_envs):
             self._action_events[i].set()
         for i in range(self.num_envs):
             self._result_events[i].wait()
             self._result_events[i].clear()
-            self.current_obs[i] = numpy_to_obs_dict(self._res_arrs[i][:OBS_SIZE])
+            self.current_obs[i] = numpy_to_obs_dict(self._res_arrs[i][:self.obs_size], self.obs_shapes)
 
     # ── Teardown ──────────────────────────────────────────────────────────
 
     def close(self):
         self._close_event.set()
         for i in range(self.num_envs):
-            self._act_arr[i] = [-1, 0, 0]       # wake workers so they check close_event
+            self._act_arr[i][:2] = [-1, 0]       # wake workers so they check close_event
             self._action_events[i].set()
         for p in self.processes:
             p.join(timeout=5)
@@ -257,7 +258,7 @@ class SharedMemoryEnvManager:
 
 # ─── Main training loop ───────────────────────────────────────────────────────
 
-def train(num_workers, args):
+def train(num_workers, args, model, target_env, curriculum):
     BATCH_SIZE           = args.batch_size
     SAVE_INTERVAL        = 50
     ADVANCEMENT_THRESHOLD = 0.4
@@ -266,7 +267,7 @@ def train(num_workers, args):
 
     os.makedirs("checkpoints", exist_ok=True)
 
-    model   = SpaceWarNet()
+    model = model()
     trainer = PPOTrainer(
         model, lr=args.lr, gamma=args.gamma, lam=args.lam,
         clip_eps=0.2, epochs=4, minibatch_size=args.minibatch_size,
@@ -277,12 +278,11 @@ def train(num_workers, args):
     dash  = TrainingDashboard(
         total_updates=TOTAL_UPDATES,
         advancement_window=ADVANCEMENT_WINDOW,
-        log_file="training_log.csv",
     )
-    dash.set_stage(stage, curriculum_stages[stage])
+    dash.set_stage(stage, curriculum[stage])
     dash.log_event(f"Starting training - stage 0 with {num_workers} workers")
 
-    env_mgr      = SharedMemoryEnvManager(num_workers, stage)
+    env_mgr      = SharedMemoryEnvManager(num_workers, stage, target_env, curriculum)
     update_count = 0
 
     buffers          = [RolloutBuffer() for _ in range(num_workers)]
@@ -327,11 +327,11 @@ def train(num_workers, args):
         # ── Curriculum check ──────────────────────────────────────────────
         if len(dash.base_reward_history) >= ADVANCEMENT_WINDOW:
             mean_base = np.mean(dash.base_reward_history)
-            if mean_base > ADVANCEMENT_THRESHOLD and stage < len(curriculum_stages) - 1:
+            if mean_base > ADVANCEMENT_THRESHOLD and stage < len(CURRICULUM) - 1:
                 stage += 1
                 dash.base_reward_history.clear()
                 dash.shaped_reward_history.clear()
-                dash.log_stage_advance(stage, curriculum_stages[stage], mean_base)
+                dash.log_stage_advance(stage, CURRICULUM[stage], mean_base)
                 env_mgr.set_stage(stage)
                 for b in buffers:
                     b.clear()
@@ -372,7 +372,23 @@ if __name__ == "__main__":
     parser.add_argument("--gamma", type=float, default=0.999)
     parser.add_argument("--lam", type=float, default=0.8)
     parser.add_argument("--lr", type=float, default=3e-4) 
+    parser.add_argument("--tl", action="store_true")
     args = parser.parse_args()
+    
+    if (args.tl): # Use the target-leading test environment 
+        from target_leading_test.sw_curriculum_tl import curriculum_stages_tl
+        from target_leading_test.sw_agent_tl import SpaceWarNet_Attention
+        from target_leading_test.sw_env_tl import SW_lead_target
+        target_env = SW_lead_target
+        curriculum = curriculum_stages_tl
+        model = SpaceWarNet_Attention
+    else:        # Use the target environment
+        from sw_curriculum import curriculum_stages
+        from sw_agent import SpaceWarNet
+        from sw_env import SW_1v1_env_singleplayer
+        target_env = SW_1v1_env_singleplayer
+        curriculum = curriculum_stages
+        model = SpaceWarNet
 
     mp.set_start_method("spawn", force=True)   # required for shared_memory on all platforms
-    train(num_workers=args.num_workers, args=args)
+    train(num_workers=args.num_workers, args=args, model=model, target_env=target_env, curriculum=curriculum)

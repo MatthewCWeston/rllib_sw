@@ -11,7 +11,7 @@ class TrainingDashboard:
 
     SPARKLINE_WIDTH = 50  # Number of characters in the sparkline
 
-    def __init__(self, total_updates, advancement_window=100, log_file="training_log.csv"):
+    def __init__(self, total_updates, advancement_window=100):
         self.total_updates = total_updates
         self.advancement_window = advancement_window
         self.start_time = time.time()
@@ -40,10 +40,6 @@ class TrainingDashboard:
         # Stage history
         self.stage_transitions = []
 
-        # CSV log
-        self.log_file = log_file
-        self._init_csv()
-
         # Event queue — stores (text, optional_sparkline) tuples
         self.events = deque(maxlen=20)
 
@@ -55,25 +51,6 @@ class TrainingDashboard:
             self.term_width = os.get_terminal_size().columns
         except OSError:
             self.term_width = 90
-
-    def _init_csv(self):
-        with open(self.log_file, "w") as f:
-            f.write(
-                "wall_time,update,episodes,stage,"
-                "mean_base_reward,mean_shaped_reward,"
-                "policy_loss,value_loss,entropy\n"
-            )
-
-    def _append_csv(self):
-        elapsed = time.time() - self.start_time
-        mean_base = np.mean(self.base_reward_history) if self.base_reward_history else 0.0
-        mean_shaped = np.mean(self.shaped_reward_history) if self.shaped_reward_history else 0.0
-        with open(self.log_file, "a") as f:
-            f.write(
-                f"{elapsed:.1f},{self.update_count},{self.ep_count},{self.stage},"
-                f"{mean_base:.4f},{mean_shaped:.4f},"
-                f"{self.last_policy_loss:.6f},{self.last_value_loss:.6f},{self.last_entropy:.4f}\n"
-            )
 
     @staticmethod
     def _fmt_time(seconds):
@@ -121,7 +98,7 @@ class TrainingDashboard:
         if not values:
             return ""
         bucketed = self._bucket_mean(values, width)
-        mn, mx = np.min(values), np.max(values)
+        mn, mx = np.min(bucketed), np.max(bucketed)
         chars = []
         for v in bucketed:
             normalized = (v - mn) / (mx - mn + 1e-8)
@@ -151,7 +128,6 @@ class TrainingDashboard:
         self.last_policy_loss = stats["policy_loss"] / n
         self.last_value_loss = stats["value_loss"] / n
         self.last_entropy = stats["entropy"] / n
-        self._append_csv()
         self._force_render()
 
     def log_stage_advance(self, new_stage, config, trigger_reward):
@@ -245,12 +221,8 @@ class TrainingDashboard:
         lines.append(f"  Stage: {self.stage}/7 [{stage_bar}]")
         cfg = self.stage_config
         if cfg:
-            lines.append(
-                f"  grav={cfg.get('grav_multiplier', '?'):.1f}  "
-                f"size={cfg.get('size_multiplier', '?'):.1f}  "
-                f"speed={cfg.get('target_speed', '?'):.1f}  "
-                f"ammo={cfg.get('target_ammo', '?'):.1f}"
-            )
+            for k, v in cfg.items():
+                lines.append(f"  {k}={v:.1f}  ")
         lines.append("")
 
         # Rewards

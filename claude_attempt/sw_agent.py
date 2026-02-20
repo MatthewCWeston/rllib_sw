@@ -9,8 +9,14 @@ class SpaceWarNet(nn.Module):
     def __init__(self, ship_size=8, missile_size=5, max_missiles=10, hidden=256):
         super().__init__()
         
-        # Encode each ship independently
-        self.ship_encoder = nn.Sequential(
+        # Encode self and opponent ships
+        self.opp_encoder = nn.Sequential(
+            nn.Linear(ship_size, 64),
+            nn.LeakyReLU(),
+            nn.Linear(64, 64),
+            nn.LeakyReLU(),
+        )
+        self.self_encoder = nn.Sequential(
             nn.Linear(ship_size, 64),
             nn.LeakyReLU(),
             nn.Linear(64, 64),
@@ -78,8 +84,8 @@ class SpaceWarNet(nn.Module):
             friendly_m = friendly_m.unsqueeze(0)
             hostile_m = hostile_m.unsqueeze(0)
         
-        self_enc = self.ship_encoder(self_obs)
-        opp_enc = self.ship_encoder(opp_obs)
+        self_enc = self.self_encoder(self_obs)
+        opp_enc = self.opp_encoder(opp_obs)
         friendly_enc = self.encode_missiles(friendly_m)
         hostile_enc = self.encode_missiles(hostile_m)
         combined = torch.cat([self_enc, opp_enc, friendly_enc, hostile_enc], dim=-1)
