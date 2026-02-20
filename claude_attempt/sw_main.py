@@ -268,7 +268,7 @@ def train(num_workers, args):
 
     model   = SpaceWarNet()
     trainer = PPOTrainer(
-        model, lr=3e-4, gamma=0.99, lam=0.95,
+        model, lr=args.lr, gamma=args.gamma, lam=args.lam,
         clip_eps=0.2, epochs=4, minibatch_size=args.minibatch_size,
         entropy_coef=0.01, vf_coef=0.5,
     )
@@ -369,6 +369,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-workers", type=int, default=os.cpu_count())
     parser.add_argument("--batch-size",  type=int, default=32768)
     parser.add_argument("--minibatch-size", type=int, default=256)
+    parser.add_argument("--gamma", type=float, default=0.999)
+    parser.add_argument("--lam", type=float, default=0.8)
+    parser.add_argument("--lr", type=float, default=3e-4) 
     args = parser.parse_args()
 
     mp.set_start_method("spawn", force=True)   # required for shared_memory on all platforms

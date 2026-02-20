@@ -12,27 +12,27 @@ class SpaceWarNet(nn.Module):
         # Encode each ship independently
         self.ship_encoder = nn.Sequential(
             nn.Linear(ship_size, 64),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(64, 64),
-            nn.ReLU(),
+            nn.LeakyReLU(),
         )
         
         # Encode missiles with permutation-invariant aggregation
         # Each missile set gets its own encoder, then we pool
         self.missile_encoder = nn.Sequential(
             nn.Linear(missile_size, 64),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(64, 64),
-            nn.ReLU(),
+            nn.LeakyReLU(),
         )
         
         # Trunk after combining all features
         # 2 ships * 64 + 2 missile sets * 64 = 256
         self.trunk = nn.Sequential(
             nn.Linear(256, hidden),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Linear(hidden, hidden),
-            nn.ReLU(),
+            nn.LeakyReLU(),
         )
         
         # Separate policy heads for each action dimension

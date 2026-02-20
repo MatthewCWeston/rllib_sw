@@ -121,7 +121,7 @@ class TrainingDashboard:
         if not values:
             return ""
         bucketed = self._bucket_mean(values, width)
-        mn, mx = -1.0, 1.0
+        mn, mx = np.min(values), np.max(values)
         chars = []
         for v in bucketed:
             normalized = (v - mn) / (mx - mn + 1e-8)
