@@ -450,3 +450,8 @@ Update   230 | Episodes  21330 | Stage 6 | Mean reward: -0.420 | Policy loss: -0
   [00:00:00] Starting training - stage 0 with 15 workers
 
 
+###
+# We've scaled down the minimum orbit distance such that winning should always be possible. Retrying now.
+# Okay, it still stagnates around 0.8, even if I turn up the parameters.
+
+# Try it with two layers?

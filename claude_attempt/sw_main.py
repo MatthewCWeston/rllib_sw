@@ -267,7 +267,7 @@ def train(num_workers, args, model, target_env, curriculum):
 
     os.makedirs("checkpoints", exist_ok=True)
 
-    model = model()
+    model = model(hidden=args.h_dim, emb=args.emb)
     trainer = PPOTrainer(
         model, lr=args.lr, gamma=args.gamma, lam=args.lam,
         clip_eps=0.2, epochs=4, minibatch_size=args.minibatch_size,
@@ -327,11 +327,11 @@ def train(num_workers, args, model, target_env, curriculum):
         # ── Curriculum check ──────────────────────────────────────────────
         if len(dash.base_reward_history) >= ADVANCEMENT_WINDOW:
             mean_base = np.mean(dash.base_reward_history)
-            if mean_base > ADVANCEMENT_THRESHOLD and stage < len(CURRICULUM) - 1:
+            if mean_base > ADVANCEMENT_THRESHOLD and stage < len(curriculum) - 1:
                 stage += 1
                 dash.base_reward_history.clear()
                 dash.shaped_reward_history.clear()
-                dash.log_stage_advance(stage, CURRICULUM[stage], mean_base)
+                dash.log_stage_advance(stage, curriculum[stage], mean_base)
                 env_mgr.set_stage(stage)
                 for b in buffers:
                     b.clear()
@@ -373,6 +373,10 @@ if __name__ == "__main__":
     parser.add_argument("--lam", type=float, default=0.8)
     parser.add_argument("--lr", type=float, default=3e-4) 
     parser.add_argument("--tl", action="store_true")
+    
+    parser.add_argument("--emb", type=int, default=64)
+    parser.add_argument("--h-dim", type=int, default=256)
+    
     args = parser.parse_args()
     
     if (args.tl): # Use the target-leading test environment 

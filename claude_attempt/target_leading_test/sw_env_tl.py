@@ -18,6 +18,21 @@ class Dummy_Ship(Ship):
         wrap(self.pos)
         # Apply force of gravity. GMm can be treated as a single constant.
         self.vel -= (self.pos * GRAV_CONST / (self.pos[0]**2 + self.pos[1]**2)** 1.5) * speed * grav_multiplier
+        
+    def render(self, draw, hdim, ego=None):
+        super().render(draw, hdim*2, hdim, self.size, False, ego=ego)
+        psz = self.size * hdim*2
+        if (ego is None):
+            pos = self.pos
+        else:
+            pos = self.get_obs(ego=ego)[:2]
+        p = (pos+1) * hdim
+        draw.ellipse((p[0]-psz/2, p[1]-psz/2, p[0]+psz/2, p[1]+psz/2), outline='yellow')
+        if ((self.vel!=0).any()):
+            vel = self.vel * psz*hdim*5
+            draw.line([p[0],p[1], p[0]+vel[0],p[1]+vel[1]], width=1, fill='cyan')
+            draw.line([p[0],p[1], hdim,hdim], width=1, fill='green')
+   
 
 class SW_lead_target(gym.Env):
     def __init__(self, env_config={}):
@@ -32,6 +47,8 @@ class SW_lead_target(gym.Env):
         # Target size multiplier
         self.size_multiplier = self.true_size_multiplier = env_config.get('size_multiplier', 1.0)
         self.elliptical = env_config.get('elliptical', True)
+        # Skip steps after missile launches (makes value learning easier, since nothing to do after launch)
+        self.skip_after_launch = env_config.get('skip_after_launch', True)
         # Rendering
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
@@ -44,7 +61,15 @@ class SW_lead_target(gym.Env):
             "missiles_friendly": self.missile_space, # Friendly missiles
         }
         self.observation_spaces = {i: Dict(obs_space) for i in range(1)}
-        self.action_spaces = {i: MultiDiscrete([2,2]) for i in range(1)}
+        self.action_spaces = {i: MultiDiscrete([3,2]) for i in range(1)}
+        
+    def get_keymap(self): # Set multidiscrete 
+        return {0: {
+                pygame.K_LEFT: (0,1,False),
+                pygame.K_RIGHT: (0,2,False),
+                pygame.K_DOWN: (1,1,False),
+                "default": 0},
+                }
         
     def get_obs(self):
         ego = self.playerShips[0] if self.egocentric else None
@@ -59,7 +84,7 @@ class SW_lead_target(gym.Env):
     def new_target_position(self):
         target = self.playerShips[1]
         position = np.random.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
-        r = np.random.uniform(0, 1)**.5 * WRAP_BOUND
+        r = np.random.uniform(0, 1)**.5 * MISSILE_VEL * MISSILE_LIFE
         p_ang = np.random.uniform(0, 2*np.pi)
         position = np.array([np.cos(p_ang), np.sin(p_ang)]) * r
         # Set velocity (perpendicular to angle to star)
@@ -85,6 +110,8 @@ class SW_lead_target(gym.Env):
         self.missiles = [] # x, y, vx, vy
         self.time = 0
         self.terminated = False # for rendering purposes
+        self.target_dots = []
+        self.missile_dots = []
         return self.get_obs(), {}
      
     def step(self, actions):
@@ -94,20 +121,23 @@ class SW_lead_target(gym.Env):
         ship = self.playerShips[0]
         actions = [
             0, # Thrust (none)
-            actions[0][0]+1, # Turn (right or left only)
+            actions[0][0], # Turn (right or left only)
             actions[0][1]    # shoot (nop or fire)
         ]
         # If we have a missile already, loop until it resolves.
         target = self.playerShips[1]
         ms = self.missiles
-        while(len(ms)>0):
-            target.update([], self.speed, grav_multiplier=1, target_loc=ship.pos)
-            si,d = ms[0].update(self.playerShips, self.speed)
-            if (d):
-                del ms[0]
-            if (si != -1):
-                self.terminated = True
-                self.rewards[0] = 1
+        if (self.skip_after_launch):
+            while(len(ms)>0):
+                target.update([], self.speed, grav_multiplier=1, target_loc=ship.pos)
+                si,d = ms[0].update(self.playerShips, self.speed)
+                self.target_dots.append(target.pos.copy())
+                self.missile_dots.append(ms[0].pos.copy())
+                if (d):
+                    del ms[0]
+                if (si != -1):
+                    self.terminated = True
+                    self.rewards[0] = 1
         ship.update(actions, self.missiles, self.speed, grav_multiplier=0)
         # Update the dummy ship
         target.update([], self.speed, 
@@ -126,3 +156,38 @@ class SW_lead_target(gym.Env):
             self.terminated = True # End environment if we missed.
         truncated = (self.time >= self.maxTime)
         return self.get_obs(), self.rewards, {"__all__": self.terminated}, {"__all__": truncated}, {}
+        
+    def render(self): # Display the environment state
+        ego = self.playerShips[0] if self.render_egocentric else None
+        dim = self.size
+        hdim=dim/2
+        msz = 3
+        img = Image.new('RGB', (dim, dim), color='black')
+        draw = ImageDraw.Draw(img)
+        # Draw the star (drawn by player ship if egocentric rendering is active)
+        if (ego is None):
+            rs = (1-WRAP_BOUND) * hdim
+            draw.rectangle((rs,rs,dim-rs,dim-rs), outline='white')
+        # Draw the player
+        ship = self.playerShips[0]
+        ship.render(draw, dim, hdim, 1, self.terminated, ego=ego)
+        # draw dots if env has ended
+        for i, d in enumerate(self.target_dots):
+            d = (d+1)*hdim
+            draw.ellipse((d[0]-msz, d[1]-msz, d[0]+msz, d[1]+msz), fill=(255, 0, 0, int(255*i/len(self.target_dots))))
+        for i, d in enumerate(self.missile_dots):
+            d = (d+1)*hdim
+            draw.ellipse((d[0]-msz, d[1]-msz, d[0]+msz, d[1]+msz), fill=(255, 255, 0, int(255*i/len(self.missile_dots))))
+        # Draw the target
+        target = self.playerShips[1]
+        target.render(draw, hdim, ego)
+        # Draw the missiles
+        for m in self.missiles:
+            m.render(draw, hdim, msz, self.speed, ego=ego)
+        # Rotate 90 degrees for easier viewing when using egocentric rendering
+        if (self.egocentric):
+            img = img.rotate(90)
+            draw = ImageDraw.Draw(img)
+        # Draw the time
+        draw.text((10, img.height-60), f"Time: {self.time}/{self.maxTime}", (255, 255, 255))
+        return img

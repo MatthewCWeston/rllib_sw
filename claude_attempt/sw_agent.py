@@ -6,36 +6,36 @@ from gymnasium.spaces import Dict, Box, MultiDiscrete
 from sw_env import missile_space
 
 class SpaceWarNet(nn.Module):
-    def __init__(self, ship_size=8, missile_size=5, max_missiles=10, hidden=256):
+    def __init__(self, ship_size=8, missile_size=5, max_missiles=10, hidden=256, emb=64):
         super().__init__()
         
         # Encode self and opponent ships
         self.opp_encoder = nn.Sequential(
-            nn.Linear(ship_size, 64),
+            nn.Linear(ship_size, emb),
             nn.LeakyReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(emb, emb),
             nn.LeakyReLU(),
         )
         self.self_encoder = nn.Sequential(
-            nn.Linear(ship_size, 64),
+            nn.Linear(ship_size, emb),
             nn.LeakyReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(emb, emb),
             nn.LeakyReLU(),
         )
         
         # Encode missiles with permutation-invariant aggregation
         # Each missile set gets its own encoder, then we pool
         self.missile_encoder = nn.Sequential(
-            nn.Linear(missile_size, 64),
+            nn.Linear(missile_size, emb),
             nn.LeakyReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(emb, emb),
             nn.LeakyReLU(),
         )
         
         # Trunk after combining all features
         # 2 ships * 64 + 2 missile sets * 64 = 256
         self.trunk = nn.Sequential(
-            nn.Linear(256, hidden),
+            nn.Linear(emb*4, hidden),
             nn.LeakyReLU(),
             nn.Linear(hidden, hidden),
             nn.LeakyReLU(),
