@@ -44,7 +44,6 @@ class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
         )
     def forward(self, x, src_key_padding_mask):
         x_attn, _ = self.mha(x, x, x, key_padding_mask=src_key_padding_mask, need_weights=False)
-        #x_attn = F.dropout(x_attn, self.dropout) # TODO: Remove this; redundant with mha?
         x = self.norm_attn(x_attn + x)
         x_ff = self.residual(x)
         x = self.norm_ff(x_ff + x)
