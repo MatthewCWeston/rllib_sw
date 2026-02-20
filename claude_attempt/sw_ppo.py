@@ -61,11 +61,10 @@ class PPOTrainer:
         returns = [a + v for a, v in zip(advantages, values)]
         return advantages, returns
 
+    @torch.no_grad()
     def select_action_batch(self, obs_batch):
         """Batched inference for N envs at once."""
-        with torch.no_grad():
-            logits_list, values = self.model(obs_batch)
-
+        logits_list, values = self.model(obs_batch)
         batch_size = values.shape[0]
         all_actions = []
         total_log_probs = torch.zeros(batch_size)

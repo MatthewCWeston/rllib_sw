@@ -222,7 +222,7 @@ class SW_1v1_env_singleplayer(gym.Env):
                         self.new_target_position()
         truncated = (self.time >= self.maxTime)
         info = {BASE_REWARD: self.rewards[0]}
-        #self.rewards[0] = self.shaped_reward(ship, target, self.rewards[0])
+        self.rewards[0] = self.shaped_reward(ship, target, self.rewards[0])
         return self.get_obs(), self.rewards, {"__all__": self.terminated}, {"__all__": truncated}, info
         
     def render(self): # Display the environment state

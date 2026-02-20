@@ -3,17 +3,14 @@ import numpy as np
 import torch
 import os
 import multiprocessing as mp
+from multiprocessing import shared_memory
 
 from sw_curriculum import curriculum_stages
 from sw_agent import SpaceWarNet
 from sw_logging import TrainingDashboard
 from sw_env import SW_1v1_env_singleplayer, BASE_REWARD
 from sw_ppo import RolloutBuffer, PPOTrainer
-
-
-def tensorize_obs(obs):
-    return {k: torch.tensor(v, dtype=torch.float32) for k, v in obs.items()}
-
+from environments.SpaceWar_constants import NUM_MISSILES
 
 def make_env(stage):
     return SW_1v1_env_singleplayer({
@@ -22,134 +19,262 @@ def make_env(stage):
         "ep_length": 4096,
         **curriculum_stages[stage],
     })
+    
+def get_env_constants():
+    env = make_env(0)
+    OBS_SHAPES = { k: v.shape for k, v in env.reset()[0][0].items() }
+    OBS_SIZE = sum(np.prod(s) for s in OBS_SHAPES.values()) # total floats for one obs
+    ACT_COUNT = env.action_spaces[0].shape[0] # Number of MultiDiscrete actions taken
+    return OBS_SHAPES, OBS_SIZE, ACT_COUNT
+    
+OBS_SHAPES, OBS_SIZE, ACT_COUNT = get_env_constants()
+RESULT_SIZE = OBS_SIZE + 3 # Shared result layout per worker: [obs...] [reward] [done] [base_reward]
 
 
-# ─── Persistent env worker ───────────────────────────────────────────────────
+def obs_dict_to_numpy(obs_dict):
+    """Flatten an obs dict into a 1-D float32 array matching OBS_SHAPES order."""
+    parts = []
+    for key in OBS_SHAPES:
+        parts.append(np.asarray(obs_dict[key], dtype=np.float32).ravel())
+    return np.concatenate(parts)
 
-def env_worker(pipe, initial_stage):
-    """
-    Owns one env. Only does env.step() and env.reset().
-    Protocol:
-        recv ("step", action)  -> send (obs_dict, reward, done, base_reward)
-        recv ("reset", stage)  -> send (obs_dict,)
-        recv ("close",)        -> exit
-    """
+
+def numpy_to_obs_dict(arr):
+    """Reconstruct a {key: tensor} dict from a flat float32 array."""
+    obs = {}
+    offset = 0
+    for key, shape in OBS_SHAPES.items():
+        size = int(np.prod(shape))
+        obs[key] = torch.from_numpy(arr[offset : offset + size].reshape(shape).copy())
+        offset += size
+    return obs
+
+
+# ─── Worker ──────────────────────────────────────────────────────────────────
+
+def env_worker(
+    worker_id: int,
+    initial_stage: int,
+    result_shm_name: str,   # shared memory block the worker WRITES obs/reward into
+    action_shm_name: str,   # shared memory block the worker READS actions from
+    action_event: mp.Event, # main  -> worker: "action is ready"
+    result_event: mp.Event, # worker -> main:  "result is ready"
+    close_event:  mp.Event, # main  -> worker: "please exit"
+):
+    # ── Attach to shared memory ───────────────────────────────────────────
+    res_shm = shared_memory.SharedMemory(name=result_shm_name)
+    act_shm = shared_memory.SharedMemory(name=action_shm_name)
+
+    # Numpy views directly into the shared buffers (zero-copy)
+    result_arr = np.ndarray((RESULT_SIZE,),  dtype=np.float32, buffer=res_shm.buf)
+    action_arr = np.ndarray((ACT_COUNT,),            dtype=np.int32,
+                             buffer=act_shm.buf,
+                             offset=worker_id * ACT_COUNT * np.dtype(np.int32).itemsize)
+
+    def write_result(obs_flat, reward, done, base_reward):
+        result_arr[:OBS_SIZE]    = obs_flat
+        result_arr[OBS_SIZE]     = reward
+        result_arr[OBS_SIZE + 1] = float(done)
+        result_arr[OBS_SIZE + 2] = base_reward
+
+    # ── Boot env ──────────────────────────────────────────────────────────
     stage = initial_stage
-    env = make_env(stage)
-    obs, _ = env.reset()
-    # Send initial obs
-    pipe.send((obs[0],))
+    env   = make_env(stage)
+    raw_obs, _ = env.reset()
+    write_result(obs_dict_to_numpy(raw_obs[0]), 0.0, False, 0.0)
+    result_event.set()   # signal: initial obs ready
 
+    # ── Main loop ─────────────────────────────────────────────────────────
     while True:
-        msg = pipe.recv()
-        cmd = msg[0]
+        action_event.wait()
+        action_event.clear()
 
-        if cmd == "step":
-            action = msg[1]
-            next_obs, rewards, term, trunc, info = env.step({0: action})
-            reward = rewards[0]
-            done = term["__all__"] or trunc["__all__"]
-            base_reward = info[BASE_REWARD]
-
-            if done:
-                env = make_env(stage)
-                obs, _ = env.reset()
-                pipe.send((obs[0], reward, True, base_reward))
-            else:
-                pipe.send((next_obs[0], reward, False, base_reward))
-
-        elif cmd == "reset":
-            stage = msg[1]
-            env = make_env(stage)
-            obs, _ = env.reset()
-            pipe.send((obs[0],))
-
-        elif cmd == "close":
-            pipe.close()
+        if close_event.is_set():
+            res_shm.close()
+            act_shm.close()
             return
 
+        action = action_arr.copy()  # copy before main process can overwrite
 
-class ParallelEnvManager:
-    def __init__(self, num_envs, stage):
+        cmd = int(action[0])
+
+        # ── Stage-change sentinel: action = [-2, new_stage, 0] ───────────
+        if cmd == -2:
+            stage = int(action[1])
+            env   = make_env(stage)
+            raw_obs, _ = env.reset()
+            write_result(obs_dict_to_numpy(raw_obs[0]), 0.0, False, 0.0)
+            result_event.set()
+            continue
+
+        # ── Normal step ───────────────────────────────────────────────────
+        next_raw, rewards, term, trunc, info = env.step({0: action})
+        reward      = float(rewards[0])
+        done        = term["__all__"] or trunc["__all__"]
+        base_reward = float(info[BASE_REWARD])
+
+        if done:
+            # Reuse existing env object - just reset it
+            next_raw, _ = env.reset()
+
+        write_result(obs_dict_to_numpy(next_raw[0]), reward, done, base_reward)
+        result_event.set()
+
+
+# ─── Manager ─────────────────────────────────────────────────────────────────
+
+class SharedMemoryEnvManager:
+    """
+    Owns N env workers.  Communication is via shared memory; only tiny
+    synchronisation signals (Events) cross the process boundary.
+    """
+
+    def __init__(self, num_envs: int, stage: int):
         self.num_envs = num_envs
-        self.pipes = []
-        self.processes = []
-        self.current_obs = []
 
+        # ── Allocate one result block per worker ──────────────────────────
+        self._res_shms: list[shared_memory.SharedMemory] = []
+        self._res_arrs: list[np.ndarray]                 = []
         for _ in range(num_envs):
-            parent_pipe, child_pipe = mp.Pipe()
-            p = mp.Process(target=env_worker, args=(child_pipe, stage), daemon=True)
+            shm = shared_memory.SharedMemory(
+                create=True, size=int(RESULT_SIZE * np.dtype(np.float32).itemsize)
+            )
+            arr = np.ndarray((RESULT_SIZE,), dtype=np.float32, buffer=shm.buf)
+            self._res_shms.append(shm)
+            self._res_arrs.append(arr)
+
+        # ── Single shared action block for all workers ────────────────────
+        # Layout: worker_i reads int32[i*3 : i*3+3]
+        self._act_shm = shared_memory.SharedMemory(
+            create=True, size=int(num_envs * ACT_COUNT * np.dtype(np.int32).itemsize)
+        )
+        self._act_arr = np.ndarray(
+            (num_envs, ACT_COUNT), dtype=np.int32, buffer=self._act_shm.buf
+        )
+
+        # ── Per-worker synchronisation events ─────────────────────────────
+        self._action_events = [mp.Event() for _ in range(num_envs)]
+        self._result_events = [mp.Event() for _ in range(num_envs)]
+        self._close_event   = mp.Event()   # shared; set once to stop all workers
+
+        # ── Launch workers ────────────────────────────────────────────────
+        self.processes: list[mp.Process] = []
+        for i in range(num_envs):
+            p = mp.Process(
+                target=env_worker,
+                args=(
+                    i, stage,
+                    self._res_shms[i].name,
+                    self._act_shm.name,
+                    self._action_events[i],
+                    self._result_events[i],
+                    self._close_event,
+                ),
+                daemon=True,
+            )
             p.start()
-            child_pipe.close()
-            self.pipes.append(parent_pipe)
             self.processes.append(p)
 
+        # ── Wait for all workers to write their initial obs ───────────────
+        self.current_obs: list[dict] = [None] * num_envs
         for i in range(num_envs):
-            (obs_dict,) = self.pipes[i].recv()
-            self.current_obs.append(tensorize_obs(obs_dict))
+            self._result_events[i].wait()
+            self._result_events[i].clear()
+            self.current_obs[i] = numpy_to_obs_dict(self._res_arrs[i][:OBS_SIZE])
 
-    def step_async(self, actions_per_env):
-        """Send actions to all workers (non-blocking)."""
-        for i in range(self.num_envs):
-            self.pipes[i].send(("step", actions_per_env[i]))
+    # ── Inference helpers ─────────────────────────────────────────────────
 
-    def step_wait(self):
-        """Collect results from all workers."""
-        results = []
-        for i in range(self.num_envs):
-            resp = self.pipes[i].recv()
-            obs_dict, reward, done, base_reward = resp
-            obs_tensor = tensorize_obs(obs_dict)
-            self.current_obs[i] = obs_tensor
-            results.append((obs_tensor, reward, done, base_reward))
-        return results
-
-    def get_batched_obs(self):
-        """Stack current obs across all envs into a single batched dict."""
+    def get_batched_obs(self) -> dict[str, torch.Tensor]:
+        """Stack current obs across all envs - used for batched inference."""
         batched = {}
-        for key in self.current_obs[0]:
+        for key in OBS_SHAPES:
             batched[key] = torch.stack([o[key] for o in self.current_obs], dim=0)
         return batched
 
-    def set_stage(self, stage):
+    # ── Step ──────────────────────────────────────────────────────────────
+
+    def step_async(self, actions_list):
+        """
+        Write all actions into shared memory, then signal every worker
+        simultaneously.  Non-blocking from the main process perspective.
+        """
+        for i, action in enumerate(actions_list):
+            self._act_arr[i] = action          # write into shared buffer
+        # Signal after ALL writes so workers never see a partial state
         for i in range(self.num_envs):
-            self.pipes[i].send(("reset", stage))
+            self._action_events[i].set()
+
+    def step_wait(self):
+        """
+        Block until every worker has written its result, then read results.
+        Returns list of (obs_dict, reward, done, base_reward).
+        """
+        results = []
         for i in range(self.num_envs):
-            (obs_dict,) = self.pipes[i].recv()
-            self.current_obs[i] = tensorize_obs(obs_dict)
+            self._result_events[i].wait()
+            self._result_events[i].clear()
+
+            arr         = self._res_arrs[i]
+            obs         = numpy_to_obs_dict(arr[:OBS_SIZE])
+            reward      = float(arr[OBS_SIZE])
+            done        = bool(arr[OBS_SIZE + 1])
+            base_reward = float(arr[OBS_SIZE + 2])
+
+            self.current_obs[i] = obs
+            results.append((obs, reward, done, base_reward))
+        return results
+
+    # ── Curriculum stage change ───────────────────────────────────────────
+
+    def set_stage(self, stage: int):
+        """Tell all workers to rebuild their env at the new curriculum stage."""
+        for i in range(self.num_envs):
+            self._act_arr[i] = [-2, stage, 0]   # sentinel
+        for i in range(self.num_envs):
+            self._action_events[i].set()
+        for i in range(self.num_envs):
+            self._result_events[i].wait()
+            self._result_events[i].clear()
+            self.current_obs[i] = numpy_to_obs_dict(self._res_arrs[i][:OBS_SIZE])
+
+    # ── Teardown ──────────────────────────────────────────────────────────
 
     def close(self):
-        for pipe in self.pipes:
-            try:
-                pipe.send(("close",))
-            except BrokenPipeError:
-                pass
+        self._close_event.set()
+        for i in range(self.num_envs):
+            self._act_arr[i] = [-1, 0, 0]       # wake workers so they check close_event
+            self._action_events[i].set()
         for p in self.processes:
             p.join(timeout=5)
             if p.is_alive():
                 p.terminate()
+        for shm in self._res_shms:
+            shm.close()
+            shm.unlink()
+        self._act_shm.close()
+        self._act_shm.unlink()
 
 
-# ─── Main training loop ──────────────────────────────────────────────────────
+# ─── Main training loop ───────────────────────────────────────────────────────
 
-def train(num_workers=4, batch_size=32768):
-    BATCH_SIZE = batch_size
-    SAVE_INTERVAL = 50
+def train(num_workers, args):
+    BATCH_SIZE           = args.batch_size
+    SAVE_INTERVAL        = 50
     ADVANCEMENT_THRESHOLD = 0.4
-    ADVANCEMENT_WINDOW = 100
-    TOTAL_UPDATES = 10_000
+    ADVANCEMENT_WINDOW   = 100
+    TOTAL_UPDATES        = 10_000
 
     os.makedirs("checkpoints", exist_ok=True)
 
-    model = SpaceWarNet()
+    model   = SpaceWarNet()
     trainer = PPOTrainer(
         model, lr=3e-4, gamma=0.99, lam=0.95,
-        clip_eps=0.2, epochs=4, minibatch_size=256,
+        clip_eps=0.2, epochs=4, minibatch_size=args.minibatch_size,
         entropy_coef=0.01, vf_coef=0.5,
     )
 
     stage = 0
-    dash = TrainingDashboard(
+    dash  = TrainingDashboard(
         total_updates=TOTAL_UPDATES,
         advancement_window=ADVANCEMENT_WINDOW,
         log_file="training_log.csv",
@@ -157,29 +282,29 @@ def train(num_workers=4, batch_size=32768):
     dash.set_stage(stage, curriculum_stages[stage])
     dash.log_event(f"Starting training - stage 0 with {num_workers} workers")
 
-    env_mgr = ParallelEnvManager(num_workers, stage)
+    env_mgr      = SharedMemoryEnvManager(num_workers, stage)
     update_count = 0
 
-    buffers = [RolloutBuffer() for _ in range(num_workers)]
-    ep_base_rewards = [0.0] * num_workers
-    ep_shaped_rewards = [0.0] * num_workers
+    buffers          = [RolloutBuffer() for _ in range(num_workers)]
+    ep_base_rewards  = [0.0] * num_workers
+    ep_shaped_rewards= [0.0] * num_workers
 
     while update_count < TOTAL_UPDATES:
         steps_collected = 0
 
         while steps_collected < BATCH_SIZE:
-            # ── Batched inference: one forward pass for all envs ──────
+            # ── Batched inference ─────────────────────────────────────────
             obs_batch = env_mgr.get_batched_obs()
             actions_list, log_probs_list, values_list = trainer.select_action_batch(obs_batch)
 
-            # Save pre-step obs references
+            # Snapshot obs references before the step overwrites current_obs
             pre_step_obs = [env_mgr.current_obs[i] for i in range(num_workers)]
 
-            # ── Send all actions at once, then wait ───────────────────
+            # ── Async step ────────────────────────────────────────────────
             env_mgr.step_async(actions_list)
             results = env_mgr.step_wait()
 
-            # ── Store transitions per env ─────────────────────────────
+            # ── Store transitions ─────────────────────────────────────────
             for i, (obs_tensor, reward, done, base_reward) in enumerate(results):
                 buffers[i].add(
                     pre_step_obs[i],
@@ -189,17 +314,17 @@ def train(num_workers=4, batch_size=32768):
                     reward,
                     done,
                 )
-                ep_base_rewards[i] += base_reward
+                ep_base_rewards[i]   += base_reward
                 ep_shaped_rewards[i] += reward
 
                 if done:
                     dash.log_episode(ep_base_rewards[i], ep_shaped_rewards[i])
-                    ep_base_rewards[i] = 0.0
+                    ep_base_rewards[i]   = 0.0
                     ep_shaped_rewards[i] = 0.0
 
             steps_collected += num_workers
 
-        # ── Check curriculum advancement ──────────────────────────────
+        # ── Curriculum check ──────────────────────────────────────────────
         if len(dash.base_reward_history) >= ADVANCEMENT_WINDOW:
             mean_base = np.mean(dash.base_reward_history)
             if mean_base > ADVANCEMENT_THRESHOLD and stage < len(curriculum_stages) - 1:
@@ -210,11 +335,11 @@ def train(num_workers=4, batch_size=32768):
                 env_mgr.set_stage(stage)
                 for b in buffers:
                     b.clear()
-                ep_base_rewards = [0.0] * num_workers
-                ep_shaped_rewards = [0.0] * num_workers
+                ep_base_rewards  = [0.0] * num_workers
+                ep_shaped_rewards= [0.0] * num_workers
                 continue
 
-        # ── PPO update (GAE computed per-env, then merged) ────────────
+        # ── PPO update ────────────────────────────────────────────────────
         stats = trainer.update(buffers)
         if stats is None:
             continue
@@ -225,11 +350,11 @@ def train(num_workers=4, batch_size=32768):
         if update_count % SAVE_INTERVAL == 0:
             path = f"checkpoints/spacewar_stage{stage}_update{update_count}.pt"
             torch.save({
-                "model_state_dict": model.state_dict(),
+                "model_state_dict":     model.state_dict(),
                 "optimizer_state_dict": trainer.optimizer.state_dict(),
-                "stage": stage,
-                "update_count": update_count,
-                "ep_count": dash.ep_count,
+                "stage":                stage,
+                "update_count":         update_count,
+                "ep_count":             dash.ep_count,
             }, path)
             dash.log_save(path)
 
@@ -241,10 +366,10 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num-workers", type=int, default=os.cpu_count(),
-                        help="Number of parallel env workers (default: all CPUs)")
-    parser.add_argument("--batch-size", type=int, default=32768,
-                        help="Steps to sample before updating")
+    parser.add_argument("--num-workers", type=int, default=os.cpu_count())
+    parser.add_argument("--batch-size",  type=int, default=32768)
+    parser.add_argument("--minibatch-size", type=int, default=256)
     args = parser.parse_args()
 
-    train(num_workers=args.num_workers, batch_size=args.batch_size)
+    mp.set_start_method("spawn", force=True)   # required for shared_memory on all platforms
+    train(num_workers=args.num_workers, args=args)
