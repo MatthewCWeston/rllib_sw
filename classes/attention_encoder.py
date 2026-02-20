@@ -44,7 +44,6 @@ class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
         )
     def forward(self, x, src_key_padding_mask):
         x_attn, _ = self.mha(x, x, x, key_padding_mask=src_key_padding_mask, need_weights=False)
-        #x_attn = F.dropout(x_attn, self.dropout) # TODO: Remove this; redundant with mha?
         x = self.norm_attn(x_attn + x)
         x_ff = self.residual(x)
         x = self.norm_ff(x_ff + x)
@@ -74,7 +73,7 @@ class AttentionEncoder(TorchModel, Encoder):
                         dim_feedforward=config.attn_ff_dim, nhead=4, batch_first=True))
                 else:
                     mhas.append(SimpleTransformerLayer(self.emb_dim, 4,
-                        h_dim=config.attn_ff_dim))
+                        h_dim=config.attn_ff_dim, dropout=config.dropout))
                 if (self.recursive): # If recursive, only create one layer
                     break
             self.mha = nn.ModuleList(mhas)
@@ -153,6 +152,7 @@ class AttentionEncoderConfig(ModelConfig):
         self.full_transformer = kwargs["model_config_dict"]["full_transformer"]
         self.attn_layers = kwargs["model_config_dict"]["attn_layers"]
         self.recursive = kwargs["model_config_dict"]["recursive"]
+        self.dropout = kwargs["model_config_dict"].get("dropout", 0.1)
         self.output_dims = (self.emb_dim,)
 
     def build(self, framework, is_critic=False):

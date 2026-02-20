@@ -15,7 +15,6 @@ ENV_DYNAMICS = CRITIC_ONLY+"_env_dynamics"
       
 class Dummy_Ship(Ship):
     def update(self, missiles, speed, grav_multiplier, target_loc):
-        self.updateAngUV()
         if (self.stored_missiles > 0):
             # Rotate towards player
             vec_diff = target_loc-self.pos
@@ -34,6 +33,7 @@ class Dummy_Ship(Ship):
               self.ang += SHIP_TURN_RATE * speed
             elif (action==2):
               self.ang -= SHIP_TURN_RATE * speed
+            self.updateAngUV()
             # Shoot
             if (self.stored_missiles > 0 and self.reloadTime <= 0 
                 and (vec_diff**2).sum()**.5 < MISSILE_LIFE*MISSILE_VEL*1.5):

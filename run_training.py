@@ -79,6 +79,7 @@ parser.add_argument("--attn-ff-dim", type=int, default=2048) # Feedforward compo
 parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively run our attention layer
 parser.add_argument("--full-transformer", action='store_true') # Use full Transformer layers from PyTorch
 parser.add_argument("--attn-recursive", action='store_true')
+parser.add_argument("--dropout", type=float, default=0.1) # In theory, this shouldn't help. In practice, it helps.
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
 parser.add_argument("--activation-fn", type=str, default='relu') # Activation function for the network head.
 parser.add_argument('--use-layernorm', action='store_true') # Use the norm
@@ -93,6 +94,11 @@ parser.add_argument("--use-eppo", action='store_true') # Don't restore value fun
 parser.add_argument("--grad-clip", type=float, default=100.0)
 parser.add_argument("--kl-loss", action='store_true')
 parser.add_argument("--entropy-coeff", type=float, default=0.0)
+
+parser.add_argument("--gpus-per-learner", type=float, default=1.0) # Remainder will be given to env runners
+parser.add_argument("--cpus-per-env-runner", type=float, default=1.0) # Remainder will be given to env runners
+parser.add_argument("--envs-per-env-runner", type=int, default=4)
+parser.add_argument("--remote-worker-envs", action='store_true')
 
 args = parser.parse_args()
 
@@ -129,6 +135,16 @@ config = (
         },
         grad_clip=args.grad_clip if hasattr(args, 'grad_clip') else None,
         grad_clip_by="global_norm",
+    )
+    .learners(
+        num_gpus_per_learner=args.gpus_per_learner,
+    )
+    .env_runners(
+        num_cpus_per_env_runner=args.cpus_per_env_runner,
+        num_gpus_per_env_runner=0 if args.num_env_runners==0 else (torch.cuda.device_count() - args.gpus_per_learner) / args.num_env_runners,
+        num_envs_per_env_runner=args.envs_per_env_runner,
+        num_env_runners=args.num_env_runners,
+        remote_worker_envs=args.remote_worker_envs,
     )
 )
 
@@ -167,6 +183,7 @@ if (not args.no_custom_arch):
                 "attn_layers": args.attn_layers,
                 "attn_ff_dim": args.attn_ff_dim,
                 "recursive": args.attn_recursive,
+                "dropout": args.dropout,
                 "head_fcnet_hiddens": tuple(args.fcnet),
                 "head_fcnet_activation": args.activation_fn,
                 "vf_share_layers": args.share_layers,
@@ -174,9 +191,6 @@ if (not args.no_custom_arch):
             },
         )
     }
-    config.env_runners(
-        num_env_runners=args.num_env_runners,
-    )
 else:
     print('Using default architecture')
     specs = {
@@ -191,7 +205,6 @@ else:
         )
     }
     config.env_runners(
-        num_env_runners=args.num_env_runners,
         env_to_module_connector=(
             lambda env, spaces, device: FlattenObservations(multi_agent=ma_env)
         ),
