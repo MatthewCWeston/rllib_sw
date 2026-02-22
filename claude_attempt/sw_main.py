@@ -381,11 +381,11 @@ if __name__ == "__main__":
     
     if (args.tl): # Use the target-leading test environment 
         from target_leading_test.sw_curriculum_tl import curriculum_stages_tl
-        from target_leading_test.sw_agent_tl import SpaceWarNet_Attention
+        from target_leading_test.sw_agent_tl import SpaceWarNet #_Attention
         from target_leading_test.sw_env_tl import SW_lead_target
         target_env = SW_lead_target
         curriculum = curriculum_stages_tl
-        model = SpaceWarNet_Attention
+        model = SpaceWarNet #_Attention
     else:        # Use the target environment
         from sw_curriculum import curriculum_stages
         from sw_agent import SpaceWarNet

@@ -6,7 +6,7 @@ from gymnasium.spaces import Dict, Box, MultiDiscrete
 from sw_env import missile_space
 
 class SpaceWarNet(nn.Module):
-    def __init__(self, ship_size=8, missile_size=5, max_missiles=10, hidden=256, emb=64):
+    def __init__(self, ship_size=8, missile_size=5, hidden=256, emb=64):
         super().__init__()
         
         # Encode self and opponent ships
