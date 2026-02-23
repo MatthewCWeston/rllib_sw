@@ -35,9 +35,9 @@ def gr_helper(p, a):
         (WRAP_BOUND, m*WRAP_BOUND+i), (-WRAP_BOUND, m*-WRAP_BOUND+i), # vertical
         ]
     distances = [((x-p)**2).sum() for x in pois]
-    signs = [np.sign(x[0]-p[0]) * np.sign(np.cos(a) * (-1 if i < 2 else 1)) for i, x in enumerate(pois)]
-    i = np.argmin(distances)
-    return distances[i]**.5 * signs[i]
+    signs = [np.sign(x[0]-p[0]) * np.sign(np.cos(a) * (-1 if ix < 2 else 1)) for ix, x in enumerate(pois)]
+    ix = np.argmin(distances)
+    return distances[ix]**.5 * signs[ix]
     
 def get_raycasts(p, a):
     ''' Get the distances from a ship's front and side to the nearest edge''' 
@@ -45,6 +45,7 @@ def get_raycasts(p, a):
 
 class Missile():
     REPR_SIZE = 5
+    AUG_DIM = 4
     def __init__(self, pos, vel):
         self.pos = pos
         self.vel = vel
@@ -61,14 +62,21 @@ class Missile():
         wrap(mp)
         self.life -= 1 * speed
         return -1, (self.life<=0)
-    def get_obs(self, ego):
+    def get_obs(self, ego, aug=False):
         if (ego is None):
             return np.array([self.pos[0], self.pos[1], self.vel[0], self.vel[1], self.life/self.maxLife])
         else:
             p = ego_pt(self.pos, ego)
             v = rotate_pt(self.vel, -ego.ang) # Rotate velocity w/r to removing ego's angle
-            # rotate relative position by the negative of the angle
-            return np.concatenate([p, v, [self.life/self.maxLife]])
+            obs = np.concatenate([p, v, [self.life/self.maxLife]])
+            if (aug): # Distance to observer, closing speed to observer
+                dist = np.linalg.norm(p)
+                closing_speed = np.dot(p / dist, (v - rotate_pt(ego.vel, -ego.ang))) / 2 # / 2 to normalize magnitude
+                # Observer's bearing, from the perspective of the missile.
+                ang_to_observer =  np.arctan2(p[1],p[0]) * 180/np.pi
+                bearing_wrt_missile = rotate_pt(v / np.linalg.norm(v), -ang_to_observer) # angular UV of missile direction
+                obs = np.concatenate([obs, bearing_wrt_missile, [dist, closing_speed]])
+            return obs
     def render(self, draw, hdim, msz, envspeed, ego=None, c="yellow"):
         if (ego is None):
             pos, vel = self.pos, self.vel
@@ -85,6 +93,8 @@ class Missile():
 
 class Ship():
     REPR_SIZE = 8
+    ALL_AUG_DIM = 4
+    OTHER_AUG_DIM = ALL_AUG_DIM + 6
     def __init__(self, pos, ang, size=PLAYER_SIZE):
         self.pos = pos
         self.ang = ang
@@ -123,26 +133,53 @@ class Ship():
         wrap(self.pos)
         # Apply force of gravity. GMm can be treated as a single constant.
         self.vel -= (self.pos * GRAV_CONST / (self.pos[0]**2 + self.pos[1]**2)** 1.5) * speed * grav_multiplier
-    def get_obs(self, ego=None):
+    def get_obs(self, 
+            ego=None, # The Ship associated with the observing agent
+            aug=False,# Should we augment the observations with some engineered features?
+            ):
         # pos, vel, angle unit vector, ammo remaining
         if (ego is None):
             return np.concatenate([self.pos, self.vel, self.angUV, 
             [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME]
             ])
         else:
+            # Self: [star, vel, to_edges, missiles, reload time]
+            # Other: [pos (relative to self), vel (rotated to self), auv (rotated to self), missiles, reload time]
+            # We want to augment observations.
+            # All: Radial and tangential velocity WRT star, distance to star, speed
+            # Other: XY to star (rotated to self), bearing, distance to observer, closing speed to observer
             if (ego==self):
-                p = rotate_pt(-self.pos, -ego.ang)# Location of star, adjusted for angle
-                #auv = np.array([0,0]) # Since we adjust everything else to nullify player angle
-                '''nearest_corner = np.sign(self.pos)*WRAP_BOUND
-                auv = ego_pt(nearest_corner, ego) # For self, auv is the nearest corner instead.'''
-                auv = get_raycasts(self.pos, self.ang)
+                p = rotate_pt(-self.pos, -ego.ang) # Location of star, adjusted for angle
+                auv = get_raycasts(self.pos, self.ang) # Raycasts to arena boundary
             else:
                 p = ego_pt(self.pos, ego)
-                auv = rotate_pt(self.angUV, -ego.ang)
+                #auv = rotate_pt(self.angUV, -ego.ang) 
+                # AngUV rotated by -angle of p, not by observer's facing
+                ang_to_observer = np.arctan2(p[1],p[0]) * 180/np.pi
+                auv = rotate_pt(self.angUV, -ang_to_observer)
             v = rotate_pt(self.vel, -ego.ang) # Rotate velocity w/r to removing ego's angle
-            return np.concatenate([p, v, auv, 
-            [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME]
+            obs = np.concatenate([p, v, auv, 
+                [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME]
             ])
+            if (aug):
+                star_dist = np.linalg.norm(self.pos) # Wrap bound permits a maximum of 1 distance from star
+                star_anguv = -self.pos/star_dist # Angular unit vector of the direction to the star
+                rad_vel = np.dot(star_anguv, self.vel) # Velocity component perpendicular to orbit
+                tan_vel = np.dot(np.array([star_anguv[1],-star_anguv[0]]), self.vel) # Velocity component of orbit
+                speed = np.linalg.norm(self.vel) # Speed
+                aug_vec = [rad_vel, tan_vel, speed, star_dist]
+                if (ego != self):
+                    # Include X,Y distance to star, rotated WRT ego
+                    star_coords = rotate_pt(-self.pos, -ego.ang)
+                    # Bearing: Egocentric position of target, normalized by distance to target.
+                    dist = np.linalg.norm(p)
+                    opp_bearing = p / dist
+                    # Speed at which distance is being closed to ego point
+                    closing_speed = np.dot(opp_bearing, (v - rotate_pt(ego.vel, -ego.ang))) / 2
+                    # Include distance to observer, closing speed to observer, 
+                    aug_vec.extend(np.concatenate([star_coords, opp_bearing, [dist, closing_speed]]))
+                obs = np.concatenate([obs, aug_vec])
+            return obs.clip(-1,1) # avoid rounding errors
     def render(self, draw,
                 dim, hdim, ssz, terminated, ego=None):
         ''' Render this object using draw, adjust for ego if needed.'''

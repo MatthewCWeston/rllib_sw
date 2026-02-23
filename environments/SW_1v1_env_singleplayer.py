@@ -90,12 +90,13 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
         # Observation spaces; fixed and variable
-        ship_space = Box(-1,1,shape=(Ship.REPR_SIZE,))
-        missile_space = Box(-1,1,shape=(Missile.REPR_SIZE,))
+        self.augment_obs = env_config.get('aug_obs', self.egocentric)
+        assert (self.egocentric==True or self.augment_obs==False), "Augmentated observations supported for ego. obs. only"
+        missile_space = Box(-1,1,shape=(Missile.REPR_SIZE+Missile.AUG_DIM*self.augment_obs,))
         self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
         obs_space = {
-            "self": ship_space, # my ship, enemy ship
-            "opponent": ship_space,
+            "self": Box(-1,1,shape=(Ship.REPR_SIZE+Ship.ALL_AUG_DIM*self.augment_obs,)), 
+            "opponent": Box(-1,1,shape=(Ship.REPR_SIZE+Ship.OTHER_AUG_DIM*self.augment_obs,)),
             "missiles_friendly": self.missile_space, # Friendly missiles
             "missiles_hostile": self.missile_space # Hostile missiles
         }
@@ -107,10 +108,10 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
     def get_obs(self):
         ego = self.playerShips[0] if self.egocentric else None
         obs = {
-            "self": self.playerShips[0].get_obs(ego),
-            "opponent": self.playerShips[1].get_obs(ego),
-            "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego) for m in self.missiles]),
-            "missiles_hostile":  self.missile_space.encode_obs([m.get_obs(ego) for m in self.opponent_missiles]),
+            "self": self.playerShips[0].get_obs(ego, self.augment_obs),
+            "opponent": self.playerShips[1].get_obs(ego, self.augment_obs),
+            "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego, self.augment_obs) for m in self.missiles]),
+            "missiles_hostile":  self.missile_space.encode_obs([m.get_obs(ego, self.augment_obs) for m in self.opponent_missiles]),
         }
         if (self.inform_critic):
             obs[ENV_DYNAMICS] = np.array([self.grav_multiplier, self.size_multiplier / 10, self.target_speed, self.target_ammo])
