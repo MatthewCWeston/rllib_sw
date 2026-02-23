@@ -98,15 +98,16 @@ class Ship():
         a = self.ang*np.pi/180
         self.angUV = np.array([np.cos(a), -np.sin(a)])
     def update(self, action, missiles, speed, grav_multiplier=1.):
-        self.updateAngUV()
         self.last_act = action # for rendering
         # Take actions 
         if (action[0]==1):
           self.vel += SHIP_ACC * self.angUV * speed
         if (action[1]==1):
           self.ang += SHIP_TURN_RATE * speed
+          self.updateAngUV()
         elif (action[1]==2):
           self.ang -= SHIP_TURN_RATE * speed
+          self.updateAngUV()
         # Shoot 
         if (action[2]==1 and self.stored_missiles > 0 and self.reloadTime <= 0):
             m = Missile(self.pos + self.angUV * self.size, 

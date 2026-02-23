@@ -3,21 +3,25 @@ import torch.nn as nn
 import numpy as np
 from gymnasium.spaces import Dict, Box, MultiDiscrete
 
-from sw_env import missile_space
-
 class SpaceWarNet(nn.Module):
-    def __init__(self, ship_size=8, missile_size=5, hidden=256, emb=64):
+    def __init__(self, env, hidden=256, emb=64):
         super().__init__()
+        obs = env.observation_spaces[0]
+        self.missile_space = obs['missiles_friendly']
+        self_size = obs['self'].shape[0]
+        opp_size = obs['opponent'].shape[0]
+        m_size = self.missile_space.child_space.shape[0]
+        
         
         # Encode self and opponent ships
-        self.opp_encoder = nn.Sequential(
-            nn.Linear(ship_size, emb),
+        self.self_encoder = nn.Sequential(
+            nn.Linear(self_size, emb),
             nn.LeakyReLU(),
             nn.Linear(emb, emb),
             nn.LeakyReLU(),
         )
-        self.self_encoder = nn.Sequential(
-            nn.Linear(ship_size, emb),
+        self.opp_encoder = nn.Sequential(
+            nn.Linear(opp_size, emb),
             nn.LeakyReLU(),
             nn.Linear(emb, emb),
             nn.LeakyReLU(),
@@ -25,8 +29,14 @@ class SpaceWarNet(nn.Module):
         
         # Encode missiles with permutation-invariant aggregation
         # Each missile set gets its own encoder, then we pool
-        self.missile_encoder = nn.Sequential(
-            nn.Linear(missile_size, emb),
+        self.missile_encoder_friendly = nn.Sequential(
+            nn.Linear(m_size, emb),
+            nn.LeakyReLU(),
+            nn.Linear(emb, emb),
+            nn.LeakyReLU(),
+        )
+        self.missile_encoder_hostile = nn.Sequential(
+            nn.Linear(m_size, emb),
             nn.LeakyReLU(),
             nn.Linear(emb, emb),
             nn.LeakyReLU(),
@@ -49,7 +59,7 @@ class SpaceWarNet(nn.Module):
         # Value head
         self.value_head = nn.Linear(hidden, 1)
         
-    def encode_missiles(self, missile_obs):
+    def encode_missiles(self, missile_obs, encoder):
         """
         missile_obs: (batch, max_missiles * missile_size) from RepeatedCustom encoding
         Returns: (batch, 64) - pooled missile features
@@ -57,7 +67,7 @@ class SpaceWarNet(nn.Module):
         batch_size = missile_obs.shape[0]
         missile_size = missile_obs.shape[-1]
         # MCW: Used RepeatedCustom to encode this space; decode first
-        v, mask = missile_space.decode_obs(missile_obs) # Returns a [batch x max_seq_len x feature_size] array and a [batch x max_seq_len] mask
+        v, mask = self.missile_space.decode_obs(missile_obs) # Returns a [batch x max_seq_len x feature_size] array and a [batch x max_seq_len] mask
         max_len = int(mask.sum(dim=1).max().item())
         if (max_len==0):
             return torch.zeros((batch_size, 64))
@@ -65,11 +75,13 @@ class SpaceWarNet(nn.Module):
         mask = mask[:,:max_len]
         
         # Encode each missile
-        encoded = self.missile_encoder(v)  # (batch, max_missiles, 64)
+        encoded = encoder(v)  # (batch, max_missiles, 64)
         
         # Masked mean pooling
         mask_expanded = mask.unsqueeze(-1)  # (batch, max_missiles, 1)
-        pooled = (encoded * mask_expanded).sum(dim=1) / (mask_expanded.sum(dim=1) + 1e-8)
+        #pooled = (encoded * mask_expanded).sum(dim=1) / (mask_expanded.sum(dim=1) + 1e-8)
+        # Max pool instead.
+        pooled = (encoded * mask_expanded).max(dim=1).values
         return pooled
     
     def forward(self, obs_dict):
@@ -86,8 +98,8 @@ class SpaceWarNet(nn.Module):
         
         self_enc = self.self_encoder(self_obs)
         opp_enc = self.opp_encoder(opp_obs)
-        friendly_enc = self.encode_missiles(friendly_m)
-        hostile_enc = self.encode_missiles(hostile_m)
+        friendly_enc = self.encode_missiles(friendly_m, self.missile_encoder_friendly)
+        hostile_enc = self.encode_missiles(hostile_m, self.missile_encoder_hostile)
         combined = torch.cat([self_enc, opp_enc, friendly_enc, hostile_enc], dim=-1)
         features = self.trunk(combined)
         

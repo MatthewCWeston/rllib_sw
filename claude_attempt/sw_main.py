@@ -266,8 +266,6 @@ def train(num_workers, args, model, target_env, curriculum):
     TOTAL_UPDATES        = 10_000
 
     os.makedirs("checkpoints", exist_ok=True)
-
-    model = model(hidden=args.h_dim, emb=args.emb)
     trainer = PPOTrainer(
         model, lr=args.lr, gamma=args.gamma, lam=args.lam,
         clip_eps=0.2, epochs=4, minibatch_size=args.minibatch_size,
@@ -371,8 +369,10 @@ if __name__ == "__main__":
     parser.add_argument("--minibatch-size", type=int, default=256)
     parser.add_argument("--gamma", type=float, default=0.999)
     parser.add_argument("--lam", type=float, default=0.8)
-    parser.add_argument("--lr", type=float, default=3e-4) 
+    parser.add_argument("--lr", type=float, default=3e-4)
+    
     parser.add_argument("--tl", action="store_true")
+    parser.add_argument("--aug", action="store_true") # Augmented observation space
     
     parser.add_argument("--emb", type=int, default=64)
     parser.add_argument("--h-dim", type=int, default=256)
@@ -389,10 +389,15 @@ if __name__ == "__main__":
     else:        # Use the target environment
         from sw_curriculum import curriculum_stages
         from sw_agent import SpaceWarNet
-        from sw_env import SW_1v1_env_singleplayer
-        target_env = SW_1v1_env_singleplayer
+        if (not args.aug):
+            from sw_env import SW_1v1_env_singleplayer
+            target_env = SW_1v1_env_singleplayer
+        else:
+            from obs_aug_test.sw_env_aug import SW_1v1_env_singleplayer
+            target_env = SW_1v1_env_singleplayer
         curriculum = curriculum_stages
-        model = SpaceWarNet
+        env = make_env(0, target_env, curriculum) # For instantiating agent
+        model = SpaceWarNet(env=env, hidden=args.h_dim, emb=args.emb)
 
     mp.set_start_method("spawn", force=True)   # required for shared_memory on all platforms
     train(num_workers=args.num_workers, args=args, model=model, target_env=target_env, curriculum=curriculum)

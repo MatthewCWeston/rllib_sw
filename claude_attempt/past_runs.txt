@@ -455,3 +455,11 @@ Update   230 | Episodes  21330 | Stage 6 | Mean reward: -0.420 | Policy loss: -0
 # Okay, it still stagnates around 0.8, even if I turn up the parameters.
 
 # Try it with two layers?
+
+### 
+# Get a benchmark for performance convergence on the standard 1-1-1-0 environment
+
+python sw_main.py --num-workers 15
+
+
+# After that, try letting LLM engineer the feature space, and seeing how it does with that
