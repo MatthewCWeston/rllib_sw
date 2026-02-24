@@ -73,7 +73,7 @@ class Missile():
                 dist = np.linalg.norm(p)
                 closing_speed = np.dot(p / dist, (v - rotate_pt(ego.vel, -ego.ang))) / 2 # / 2 to normalize magnitude
                 # Observer's bearing, from the perspective of the missile.
-                ang_to_observer =  np.arctan2(p[1],p[0]) * 180/np.pi
+                ang_to_observer =  np.arctan2(p[0],p[1]) * 180/np.pi
                 bearing_wrt_missile = rotate_pt(v / np.linalg.norm(v), -ang_to_observer) # angular UV of missile direction
                 obs = np.concatenate([obs, bearing_wrt_missile, [dist, closing_speed]])
             return obs
@@ -155,8 +155,8 @@ class Ship():
                 p = ego_pt(self.pos, ego)
                 #auv = rotate_pt(self.angUV, -ego.ang) 
                 # AngUV rotated by -angle of p, not by observer's facing
-                ang_to_observer = np.arctan2(p[1],p[0]) * 180/np.pi
-                auv = rotate_pt(self.angUV, -ang_to_observer)
+                ang_to_observer = np.arctan2(p[0],p[1]) * 180/np.pi
+                auv = rotate_pt(self.angUV, -ang_to_observer) # Gets the 'bearing' of the observer in the eyes of this ship
             v = rotate_pt(self.vel, -ego.ang) # Rotate velocity w/r to removing ego's angle
             obs = np.concatenate([p, v, auv, 
                 [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME]
@@ -176,7 +176,6 @@ class Ship():
                     opp_bearing = p / dist
                     # Speed at which distance is being closed to ego point
                     closing_speed = np.dot(opp_bearing, (v - rotate_pt(ego.vel, -ego.ang))) / 2
-                    # Include distance to observer, closing speed to observer, 
                     aug_vec.extend(np.concatenate([star_coords, opp_bearing, [dist, closing_speed]]))
                 obs = np.concatenate([obs, aug_vec])
             return obs.clip(-1,1) # avoid rounding errors
