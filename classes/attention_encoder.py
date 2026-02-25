@@ -207,6 +207,8 @@ class AttentionPPOCatalog(PPOCatalog):
             base_encoder_config=self._encoder_config,
             shared=self._model_config_dict["vf_share_layers"],
         ) # Informs the critic encoder that it's the critic encoder.
+        # Temporary code to enable use of Leaky ReLU activation functional
+        self.override_activation_fn = self._model_config_dict.get('override_activation_fn', False)
         #
         # Temporary code for adding layer normalization to the head. Will remove when fix is added to master branch.
         # https://github.com/ray-project/ray/blob/master/rllib/algorithms/ppo/ppo_catalog.py
@@ -275,32 +277,33 @@ class AttentionPPOCatalog(PPOCatalog):
         )
         
         pi_head = self.pi_head_config.build(framework=framework)
-        ''' Temporary code until RLlib adds LeakyReLU to its supported activation functions
-        from ray.rllib.models.utils import get_activation_fn
-        old_act_class = get_activation_fn(self.pi_and_vf_head_activation, framework='torch')
-        new_layers = []
-        for layer in pi_head.net.mlp:
-            if isinstance(layer, old_act_class):
-                # Replace with LeakyReLU (adjust negative_slope if desired)
-                new_layers.append(nn.LeakyReLU())
-            else:
-                new_layers.append(layer)
-        pi_head.net.mlp = nn.Sequential(*new_layers) #'''
+        # Temporary code until RLlib adds LeakyReLU to its supported activation functions
+        if (self.override_activation_fn):
+            from ray.rllib.models.utils import get_activation_fn
+            old_act_class = get_activation_fn(self.pi_and_vf_head_activation, framework='torch')
+            new_layers = []
+            for layer in pi_head.net.mlp:
+                if isinstance(layer, old_act_class):
+                    # Replace with LeakyReLU (adjust negative_slope if desired)
+                    new_layers.append(nn.LeakyReLU())
+                else:
+                    new_layers.append(layer)
+            pi_head.net.mlp = nn.Sequential(*new_layers)
         return pi_head
         
-    '''
     def build_vf_head(self, framework: str):
         # Temporary code until RLlib adds LeakyReLU to its supported activation functions
         from ray.rllib.models.utils import get_activation_fn
         vf_head = self.vf_head_config.build(framework=framework)
-        old_act_class = get_activation_fn(self.pi_and_vf_head_activation, framework='torch')
-        new_layers = []
-        for layer in vf_head.net.mlp:
-            if isinstance(layer, old_act_class):
-                # Replace with LeakyReLU (adjust negative_slope if desired)
-                new_layers.append(nn.LeakyReLU())
-            else:
-                new_layers.append(layer)
-        vf_head.net.mlp = nn.Sequential(*new_layers)
-        return vf_head #'''
+        if (self.override_activation_fn):
+            old_act_class = get_activation_fn(self.pi_and_vf_head_activation, framework='torch')
+            new_layers = []
+            for layer in vf_head.net.mlp:
+                if isinstance(layer, old_act_class):
+                    # Replace with LeakyReLU (adjust negative_slope if desired)
+                    new_layers.append(nn.LeakyReLU())
+                else:
+                    new_layers.append(layer)
+            vf_head.net.mlp = nn.Sequential(*new_layers)
+        return vf_head 
         

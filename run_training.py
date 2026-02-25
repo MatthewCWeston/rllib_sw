@@ -171,6 +171,7 @@ else:
 if (not args.no_custom_arch):
     print('Using custom architecture')
     print(f"Share layers = {args.share_layers}")
+    lrelu_override = args.activation_fn=="leakyrelu"
     specs = {
         module_id: RLModuleSpec(
             module_class=module_class,
@@ -185,7 +186,8 @@ if (not args.no_custom_arch):
                 "recursive": args.attn_recursive,
                 "dropout": args.dropout,
                 "head_fcnet_hiddens": tuple(args.fcnet),
-                "head_fcnet_activation": args.activation_fn,
+                "head_fcnet_activation": "relu" if lrelu_override else args.activation_fn,
+                "override_activation_fn": lrelu_override,
                 "vf_share_layers": args.share_layers,
                 "head_fcnet_use_layernorm": args.use_layernorm,
             },
