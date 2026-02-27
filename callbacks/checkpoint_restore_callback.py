@@ -24,12 +24,12 @@ class LoadOnAlgoInitCallback(RLlibCallback):
     ):
         dest_module_names = dest_module_names or [module_name] # Potentially, load weights into new dest.
         self.ckpt_path = (
-                Path(ckpt_path)  # <- algorithm's checkpoint dir
-                / COMPONENT_LEARNER_GROUP  # <- learner group
-                / COMPONENT_LEARNER  # <- learner
-                / COMPONENT_RL_MODULE  # <- MultiRLModule
-                / module_name  # <- (single) RLModule
-            )
+            Path(ckpt_path)  # <- algorithm's checkpoint dir
+            / COMPONENT_LEARNER_GROUP  # <- learner group
+            / COMPONENT_LEARNER  # <- learner
+            / COMPONENT_RL_MODULE  # <- MultiRLModule
+            / module_name  # <- (single) RLModule
+        )
         self.dest_module_names = dest_module_names
         self.vf_cold_start = vf_cold_start # Don't load the critic's parameters
         
@@ -41,7 +41,7 @@ class LoadOnAlgoInitCallback(RLlibCallback):
         for dest_module in self.dest_module_names:
             m_to_load = algorithm.get_module(dest_module)
             if (self.vf_cold_start):
-                original_states = copy.deepcopy(m_to_load.state_dict())
+                original_state = copy.deepcopy(m_to_load.state_dict())
                 keys_to_load = filter(lambda x: x[:2]=='vf' or x[8:14]=='critic', list(original_state.keys()))
                 original_states[dest_module] = {k: original_state[k] for k in keys_to_load}
             weight_before = convert_to_numpy(next(iter(m_to_load.parameters())))
