@@ -3,4 +3,5 @@
 /tmp
 /hyperparameter_search/results/*
 /hyperparameter_opt/analysis/.~lock*
-/claude_attempt/*
+/claude_attempt
+/results_tmp

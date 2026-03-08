@@ -22,7 +22,7 @@ def get_tune_callbacks(args: argparse.Namespace):
         )]
     return []
 
-def run_tune_training(config: "AlgorithmConfig",args: Optional[argparse.Namespace] = None,*,stop: Optional[Dict] = None, scheduler=None):
+def run_tune_training(config: "AlgorithmConfig", args: Optional[argparse.Namespace] = None, *, stop: Optional[Dict] = None, scheduler=None):
     # Initialize Ray.
     ray.init(num_cpus=args.num_cpus or None, local_mode=args.local_mode, ignore_reinit_error=True,)
     # Auto-configure a CLIReporter (to log the results to the console).
@@ -49,6 +49,8 @@ def run_tune_training(config: "AlgorithmConfig",args: Optional[argparse.Namespac
         config.algo_class,
         param_space=config,
         run_config=tune.RunConfig(
+            storage_path=args.results_path, # Checkpoint directory loc.
+            name=args.experiment_name,
             stop=stop,
             verbose=args.verbose,
             callbacks=get_tune_callbacks(args),
@@ -59,6 +61,7 @@ def run_tune_training(config: "AlgorithmConfig",args: Optional[argparse.Namespac
             progress_reporter=progress_reporter,
         ),
         tune_config=tune.TuneConfig(
+            trial_dirname_creator=lambda x: args.trial_name, # Specify trial name
             num_samples=args.num_samples,
             max_concurrent_trials=args.max_concurrent_trials,
             scheduler=scheduler,

@@ -108,6 +108,8 @@ class AttentionEncoder(TorchModel, Encoder):
                 continue # Ignore critic only information
             v = obs[s]
             v_s = obs_s[s]
+            if (len(v.shape)==1): # Add batch dimension if it's not there
+                v = v.unsqueeze(0)
             if type(v_s) is RepeatedCustom:
                 v, mask = v_s.decode_obs(v)
                 max_len = int(mask.sum(dim=1).max().item())

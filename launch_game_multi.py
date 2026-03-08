@@ -27,12 +27,7 @@ parser.add_argument("--env-config", type=json.loads, default={})
 parser.add_argument("--ckpt-path", type=str, default=None, help="Path to checkpoint file, if applicable")
 parser.add_argument("--ckpt-name", type=str, default="main")
 args = parser.parse_args()
-
 cfg = args.env_config
-agent = None
-if (args.ckpt_path is not None):
-    ckpt_path = os.path.abspath(args.ckpt_path)
-    agent = load_checkpoint(ckpt_path, args.ckpt_name)
 
 def instantiate_env(env_name, cfg):
     spec = importlib.util.spec_from_file_location(env_name, f'./environments/{env_name}.py')
@@ -41,9 +36,18 @@ def instantiate_env(env_name, cfg):
     agent_class = getattr(module, env_name)
     return agent_class(cfg)
 env = instantiate_env(env_name, cfg)
+ad = env.get_keymap()
+agent_name = env.agents[0]
+action_space = env.action_spaces[agent_name]
 o, _ = env.reset()
 size = env.size
-ad = env.get_keymap()
+
+# Load checkpoint
+agent = None
+if (args.ckpt_path is not None):
+    from classes.inference_helpers import load_checkpoint, query_model, query_value
+    ckpt_path = os.path.abspath(args.ckpt_path)
+    agent = load_checkpoint(ckpt_path, 'my_policy')
 
 pygame.init()
 window = pygame.display.set_mode((size, size))

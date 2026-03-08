@@ -2,12 +2,14 @@
     For now, just optimize an agent against another agent initialized from the same weights
 '''
 
+import os
 import sys
 import importlib.util
 import json
 import torch
 import functools
 import numpy as np
+from datetime import datetime
 
 import ray
 from ray.rllib.models import ModelCatalog
@@ -39,6 +41,7 @@ from classes.batched_critic_ppo import BatchedCriticPPOLearner
 from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
 from callbacks.curriculum_learning_callback import CurriculumLearningCallback
 from callbacks.render_callback import RenderCallback
+from callbacks.elo_eval import elo_eval_fn
 
 from environments.SW_1v1_env import SW_1v1_env
 
@@ -48,9 +51,14 @@ parser.set_defaults(
     enable_new_api_stack=True,
     num_env_runners=0,
 )
+# Env 
+parser.add_argument("--env-config", type=json.loads, default={})
 # Architecture should match that of the base agent
 parser.add_argument("--attn-dim", type=int, default=128) # Encoder dimensionality
 parser.add_argument("--attn-ff-dim", type=int, default=2048) # Feedforward component of attention layers
+parser.add_argument("--dropout", type=float, default=0.1) # In theory, this shouldn't help. In practice, it helps.
+parser.add_argument("--activation-fn", type=str, default='relu') # Activation function for the network head.
+parser.add_argument('--use-layernorm', action='store_true') # Use the norm
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
 # Hyperparameters
 parser.add_argument("--batch-size", type=int, default=32768)
@@ -58,18 +66,31 @@ parser.add_argument("--minibatch-size", type=int, default=4096)
 parser.add_argument("--critic-batch-size", type=int, default=32768)
 parser.add_argument("--lr", type=float, default=1e-6) 
 parser.add_argument("--vf-clip", type=str, default='40.0')
+parser.add_argument("--grad-clip", type=float, default=100.0)
 parser.add_argument("--gamma", type=float, default=.999) # Reward discount over time
 parser.add_argument("--lambda_", type=float, default=0.8) # Bootstrapping ratio (lower=more bootstrapped)
 # We'll need to load in a checkpoint, and it might be beneficial to cold-start the value function
-parser.add_argument("--restore-checkpoint", type=str)
+parser.add_argument("--restore-checkpoint", type=os.path.abspath)
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
-# Miscellaneous
+# Miscellaneous/logging
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
+parser.add_argument("--elo-eval", action="store_true")
+parser.add_argument("--experiment-name", type=str, default="SPACEWAR_multiplayer")
+parser.add_argument("--trial-name", type=str, default=datetime.now().strftime("%m_%d_%Y_%H_%M_%S"))
+parser.add_argument("--results-path", type=os.path.abspath, default="./results_tmp/")
+# Resources
+parser.add_argument("--gpus-per-learner", type=float, default=1.0) # Remainder will be given to env runners
+parser.add_argument("--cpus-per-env-runner", type=float, default=1.0) # Remainder will be given to env runners
+parser.add_argument("--envs-per-env-runner", type=int, default=4)
+parser.add_argument("--remote-worker-envs", action='store_true')
 
 args = parser.parse_args()
 
 target_env = SW_1v1_env
 register_env("env", lambda cfg: target_env(cfg))
+
+args.results_path = (args.results_path)
+print(args.results_path)
 
 # Configure run
 callbacks = []
@@ -77,7 +98,7 @@ config = (
     PPOConfig()
     .environment(
         env="env",
-        env_config={'speed':5.0,'ep_length':4096,'egocentric':True,},
+        env_config=args.env_config,
     )
     .framework("torch")
     .training(
@@ -87,13 +108,24 @@ config = (
         lr=args.lr,
         vf_clip_param=float(args.vf_clip),
         use_kl_loss=False,  # From hyperparameter search
-        grad_clip=100,      # From hyperparameter search
         lambda_=args.lambda_,
         learner_class=BatchedCriticPPOLearner,
         learner_config_dict={
             'critic_batch_size': args.critic_batch_size, # Just to avoid OOM; not a hyperparameter
             'vf_cold_start': args.vf_cold_start, # Pre-train the value function for K minibatches
         },
+        grad_clip=args.grad_clip if hasattr(args, 'grad_clip') else None,
+        grad_clip_by="global_norm",
+    )
+    .learners(
+        num_gpus_per_learner=args.gpus_per_learner,
+    )
+    .env_runners(
+        num_cpus_per_env_runner=args.cpus_per_env_runner,
+        num_gpus_per_env_runner=0 if args.num_env_runners==0 else (torch.cuda.device_count() - args.gpus_per_learner) / args.num_env_runners,
+        num_envs_per_env_runner=args.envs_per_env_runner,
+        num_env_runners=args.num_env_runners,
+        remote_worker_envs=args.remote_worker_envs,
     )
 )
 # Handle envs in MA format
@@ -102,24 +134,14 @@ agent_id = env.agents[0]
 module_id = 'my_policy'
 obs_space = env.observation_spaces[agent_id]
 act_space = env.action_spaces[agent_id]
-config.multi_agent(
-  policies=[module_id],
-  policy_mapping_fn=(lambda agent_id, episode, **kwargs: module_id),
-  policies_to_train=[module_id],
-)
 
 # Architecture
-print('Using custom architecture')
-print(f"Share layers = {args.share_layers}")
 specs = {}
-
 def atm_fn(agent_id, episode, **kwargs):
-    eid = hash(episode.id_)
-    if (agent_id==eid%2):
-        return "main"
-    return "main_v0"
+    return module_id
 
-for a in ['main', 'main_v0']:
+lrelu_override = args.activation_fn=="leakyrelu"
+for a in [module_id]:
     specs[a] = RLModuleSpec(
         catalog_class=AttentionPPOCatalog,
         observation_space=obs_space,
@@ -128,17 +150,21 @@ for a in ['main', 'main_v0']:
             "attention_emb_dim": args.attn_dim,
             "attn_ff_dim": args.attn_ff_dim,
             "head_fcnet_hiddens": tuple(args.fcnet),
-            "vf_share_layers": args.share_layers,
+            "head_fcnet_activation": "relu" if lrelu_override else args.activation_fn,
+            "override_activation_fn": lrelu_override,
+            "vf_share_layers": False,
+            "head_fcnet_use_layernorm": args.use_layernorm,
             "attn_layers": 1,
             "full_transformer": False,
             "recursive": False,
+            "dropout": args.dropout,
         },
     )
     
 config.multi_agent(
-    policies=['main','main_v0'],
+    policies=[module_id],
     policy_mapping_fn=atm_fn,
-    policies_to_train=['main'], # Only the learned policy should be trained.
+    policies_to_train=[module_id], # Only the learned policy should be trained.
 )
     
 config.env_runners(
@@ -154,7 +180,19 @@ if (args.restore_checkpoint):
         module_name=module_id,
         vf_cold_start=args.vf_cold_start,
     ))
-    
+
+# Evaluate under a fixed config demonstrating the hardest conditions
+if (args.elo_eval): 
+    checkpoint_path = os.path.join(args.results_path, args.experiment_name, args.trial_name)
+    print(f"Using ELO evaluation: {checkpoint_path}")
+    config.evaluation(
+        #evaluation_parallel_to_training=True,
+        evaluation_num_env_runners=2,
+        custom_evaluation_function=functools.partial(elo_eval_fn, checkpoint_dir=checkpoint_path, main_agent_name=module_id),
+        evaluation_interval=1,  # How often to evaluate while training
+        evaluation_duration=10, #"auto", # Episodes to evaluate (can be 'auto' when parallel)
+    )
+
 # Record matches every K epochs
 if (args.render_every > 0):
     callbacks.append(functools.partial(
@@ -179,7 +217,7 @@ for i in range(num_iters):
   results = algo.train()
   if ENV_RUNNER_RESULTS in results:
       mean_return = results[ENV_RUNNER_RESULTS]['agent_episode_returns_mean']
-      vf_loss = results['learners']['main']['vf_loss']
+      vf_loss = results['learners'][module_id]['vf_loss']
       mean_return = [(k, f'{v:.2f}') for k, v in mean_return.items()]
       print(f"iter={i+1} VF loss={vf_loss:.2f} R={mean_return}")
 '''

@@ -13,33 +13,37 @@ from environments.SpaceWar_objects import Missile, Ship
 
 class SW_1v1_env(MultiAgentEnv):
     def __init__(self, env_config={}):
-        # nop/thrust, nop/left/right, npo/shoot
-        self.action_spaces = {i: MultiDiscrete([2,3,2]) for i in range(2)}
-        # Observation spaces; fixed and variable
-        ship_space = Box(-1,1,shape=(Ship.REPR_SIZE,))
-        missile_space = Box(-1,1,shape=(Missile.REPR_SIZE,))
-        self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
-        self.observation_spaces = {i: Dict({
-            "self": ship_space, # my ship, enemy ship
-            "opponent": ship_space,
-            "missiles_friendly": self.missile_space, # Friendly missiles
-            "missiles_hostile": self.missile_space # Hostile missiles
-        }) for i in range(2)}
+        super().__init__()
         self.maxTime = env_config['ep_length'] if 'ep_length' in env_config else DEFAULT_MAX_TIME
         self.speed = env_config['speed'] if 'speed' in env_config else 1.0
         self.size = env_config['render_size'] if 'render_size' in env_config else DEFAULT_RENDER_SIZE
-        self.egocentric = env_config['egocentric'] if 'egocentric' in env_config else False
+        self.egocentric = env_config['egocentric'] if 'egocentric' in env_config else True
+        self.augment_obs = env_config.get('aug_obs', self.egocentric)
+        assert (self.egocentric==True or self.augment_obs==False), "Augmentated observations supported for ego. obs. only"
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
+        # nop/thrust, nop/left/right, npo/shoot
+        self.action_spaces = {i: MultiDiscrete([2,3,2]) for i in range(2)}
+        # Observation spaces; fixed and variable
+        missile_space = Box(-1,1,shape=(Missile.REPR_SIZE+Missile.AUG_DIM*self.augment_obs,))
+        self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
+        self.observation_spaces = {i: Dict({
+            "self": Box(-1,1,shape=(Ship.REPR_SIZE+Ship.ALL_AUG_DIM*self.augment_obs,)), 
+            "opponent": Box(-1,1,shape=(Ship.REPR_SIZE+Ship.OTHER_AUG_DIM*self.augment_obs,)),
+            "missiles_friendly": self.missile_space, # Friendly missiles
+            "missiles_hostile": self.missile_space # Hostile missiles
+        }) for i in range(2)}
+        self.agents = list(self.observation_spaces.keys())
+        
     def get_obs(self):
         obs = {}
         for i in range(2):
             ego = self.playerShips[i] if self.egocentric else None
             obs[i] = {
-                "self": self.playerShips[i].get_obs(ego),
-                "opponent": self.playerShips[(i+1)%2].get_obs(ego),
-                "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego) for m in self.missiles[(i)%2]]),
-                "missiles_hostile": self.missile_space.encode_obs([m.get_obs(ego) for m in self.missiles[(i+1)%2]]),
+                "self": self.playerShips[i].get_obs(ego, self.augment_obs),
+                "opponent": self.playerShips[(i+1)%2].get_obs(ego, self.augment_obs),
+                "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego, self.augment_obs) for m in self.missiles[(i)%2]]),
+                "missiles_hostile": self.missile_space.encode_obs([m.get_obs(ego, self.augment_obs) for m in self.missiles[(i+1)%2]]),
               }
         return obs
     def get_keymap(self): # Set multidiscrete 

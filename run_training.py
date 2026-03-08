@@ -1,9 +1,11 @@
+import os
 import sys
 import importlib.util
 import json
 import torch
 import functools
 import numpy as np
+from datetime import datetime
 
 import ray
 from ray.rllib.models import ModelCatalog
@@ -70,7 +72,7 @@ parser.add_argument("--curriculum-score-threshold", type=float, default=1.1) # T
 parser.add_argument("--curriculum-allow-demotions", action='store_true') # Threshold to promote size
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 parser.add_argument("--lr", type=float, default=1e-6) 
-parser.add_argument("--lr-half-life", type=float) # Epochs for LR to halve, for exponential decay
+parser.add_argument("--lr-half-life", type=float) # Train steps for LR to halve, for exponential decay
 parser.add_argument("--vf-clip", type=str, default='40.0')
 parser.add_argument("--gamma", type=float, default=.999) # Reward discount over time
 parser.add_argument("--lambda_", type=float, default=0.8) # Bootstrapping ratio (lower=more bootstrapped)
@@ -88,12 +90,16 @@ parser.add_argument("--minibatch-size", type=int, default=4096)
 parser.add_argument("--critic-batch-size", type=int, default=32768)
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--evaluate-every", type=int, default=0) # Every X steps, record the average score at max difficulty
-parser.add_argument("--restore-checkpoint", type=str)
+parser.add_argument("--restore-checkpoint", type=os.path.abspath)
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
 parser.add_argument("--use-eppo", action='store_true') # Don't restore value function weights
 parser.add_argument("--grad-clip", type=float, default=100.0)
 parser.add_argument("--kl-loss", action='store_true')
 parser.add_argument("--entropy-coeff", type=float, default=0.0)
+
+parser.add_argument('--experiment-name', type=str, default="SPACEWAR")
+parser.add_argument('--trial-name', type=str, default=datetime.now().strftime("%m_%d_%Y_%H_%M_%S"))
+parser.add_argument("--results-path", type=os.path.abspath, default="./results_tmp/")
 
 parser.add_argument("--gpus-per-learner", type=float, default=1.0) # Remainder will be given to env runners
 parser.add_argument("--cpus-per-env-runner", type=float, default=1.0) # Remainder will be given to env runners
@@ -241,9 +247,9 @@ if (len(args.curriculum)>0):
     )
     
 if (args.evaluate_every != 0): # Evaluate under a fixed config demonstrating the hardest conditions
-    print(f"Evaluating every {args.evaluate_every} epochs.")
+    print(f"Evaluating every {args.evaluate_every} train steps.")
     config.evaluation(
-        evaluation_interval=args.evaluate_every, # Evaluate every X epochs
+        evaluation_interval=args.evaluate_every,
         evaluation_duration=50, # 50 episodes per evaluation
         evaluation_duration_unit="episodes",
         evaluation_config={"env_config": {"speed": 5.0, "ep_length": 4096, "probabilistic_difficulty": False,"size_multiplier":1.0,"grav_multiplier":1.0,"target_speed":1.0,"target_ammo":1.0, "egocentric": True}},

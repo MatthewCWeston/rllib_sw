@@ -49,6 +49,7 @@ class Dummy_Ship(Ship):
         wrap(self.pos)
         # Apply force of gravity. GMm can be treated as a single constant.
         self.vel -= (self.pos * GRAV_CONST / (self.pos[0]**2 + self.pos[1]**2)** 1.5) * speed * grav_multiplier
+        
     def render(self, draw, hdim, ego=None):
         super().render(draw, hdim*2, hdim, self.size, False, ego=ego)
         psz = self.size * hdim*2
