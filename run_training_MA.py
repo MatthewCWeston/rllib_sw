@@ -75,6 +75,7 @@ parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore valu
 # Miscellaneous/logging
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--elo-eval", action="store_true")
+parser.add_argument("--evaluation-duration", type=str, default="auto")
 parser.add_argument("--experiment-name", type=str, default="SPACEWAR_multiplayer")
 parser.add_argument("--trial-name", type=str, default=datetime.now().strftime("%m_%d_%Y_%H_%M_%S"))
 parser.add_argument("--results-path", type=os.path.abspath, default="./results_tmp/")
@@ -88,9 +89,6 @@ args = parser.parse_args()
 
 target_env = SW_1v1_env
 register_env("env", lambda cfg: target_env(cfg))
-
-args.results_path = (args.results_path)
-print(args.results_path)
 
 # Configure run
 callbacks = []
@@ -185,12 +183,13 @@ if (args.restore_checkpoint):
 if (args.elo_eval): 
     checkpoint_path = os.path.join(args.results_path, args.experiment_name, args.trial_name)
     print(f"Using ELO evaluation: {checkpoint_path}")
+    dur = args.evaluation_duration
     config.evaluation(
-        #evaluation_parallel_to_training=True,
-        evaluation_num_env_runners=2,
+        evaluation_parallel_to_training=True,
+        evaluation_num_env_runners=1,
         custom_evaluation_function=functools.partial(elo_eval_fn, checkpoint_dir=checkpoint_path, main_agent_name=module_id),
         evaluation_interval=1,  # How often to evaluate while training
-        evaluation_duration=10, #"auto", # Episodes to evaluate (can be 'auto' when parallel)
+        evaluation_duration=int(dur) if dur.isdecimal() else dur, # Episodes to evaluate (can be 'auto' when parallel)
     )
 
 # Record matches every K epochs

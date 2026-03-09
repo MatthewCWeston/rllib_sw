@@ -53,15 +53,13 @@ def sample_elo(
         agent_ts = 0
         eps = 0
         # Have to reset the env (on all vector sub_envs).
-        print(f'env: {self.env} num_envs: {self.num_envs} worker_index: {self.worker_index}')
+        # Okay, so the problem is that config.rollout_fragment_length is 1 when it should be "auto".
+        #print(f'env: {self.env} num_envs: {self.num_envs} worker_index: {self.worker_index} rollout_fragment_length: {self.config.rollout_fragment_length} total_train_batch_size: {self.config.total_train_batch_size} num_envs_per_env_runner: {self.config.num_envs_per_env_runner} num_env_runners: {self.config.num_env_runners} ')
         # when the number of env runners is not zero (no local), make_env doesn't seem to have been called here. Worker_index is zero. 
         self._reset_envs_and_episodes(False)
         self._needs_initial_reset = True
         if (num_episodes=='auto'):
-          num_timesteps = (
-            self.config.get_rollout_fragment_length(self.worker_index)
-            * self.num_envs
-          )
+          num_episodes = self.num_envs
         # Instantiate opponents
         opponents = [RLModule.from_checkpoint( # Just grab the main module
             os.path.join(
@@ -85,10 +83,7 @@ def sample_elo(
         unbatcher = UnBatchToIndividualItems()
 
         # Loop through `num_timesteps` timesteps or `num_episodes` episodes.
-        while (
-            (num_episodes=='auto' and env_ts < num_timesteps) or
-            (num_episodes!='auto' and eps < num_episodes)
-        ):
+        while (eps < num_episodes):
             # Env-to-module connector (already cached); from our reset above.
             to_module = self._cached_to_module
             assert to_module is not None
@@ -321,14 +316,6 @@ def elo_eval_fn(
     env_runner_metrics, sampled_episodes = [], []
     eval_episodes = algorithm.config.evaluation_duration # If not auto
     # Have the workers run a function that takes random main/earlier pairings and records the results
-    '''
-    episodes_and_metrics_all_env_runners = eval_workers.foreach_env_runner(
-        # env: None num_envs: 0 worker_index: 0
-        # (MultiAgentEnvRunner pid=5402) env: SyncVectorMultiAgentEnv(rllib-multi-agent-env-v0, num_envs=1) num_envs: 1 worker_index: 1
-        func=lambda worker: print(f'env: {worker.env} num_envs: {worker.num_envs} worker_index: {worker.worker_index}'),
-        local_env_runner=False,
-    )
-    #'''
     local_er = (algorithm.config.create_env_on_local_worker) or (algorithm.config.evaluation_num_env_runners==0)
     weights = get_weights(algorithm, checkpoint_list, main_agent_name)
     episodes_and_metrics_all_env_runners = eval_workers.foreach_env_runner(
@@ -362,3 +349,7 @@ def elo_eval_fn(
       update_elo(algorithm, sampled_episodes, main_agent_name)
       print_elo_table(algorithm.metrics.peek("ELO"))
     return eval_results, env_steps, agent_steps
+    
+# TODO: Consider using _evaluate_with_auto_duration as a template for our custom evaluation function.
+# https://github.com/ray-project/ray/blob/16ea23e18a85fdddcb3da9f05591ddc9f903defa/rllib/algorithms/algorithm.py#L1515
+# parallel_train_future isn't specified: https://github.com/ray-project/ray/issues/61584
