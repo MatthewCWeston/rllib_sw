@@ -252,11 +252,11 @@ def sample_elo(
         self._done_episodes_for_metrics.extend(done_episodes_to_return)
         return done_episodes_to_return
 
-def get_elo_rating(algorithm, agent_name, main_agent_name):
+def get_elo_rating(algorithm, agent_name, main_agent_name=None):
     try: # Get our stored ELO rating
       return algorithm.metrics.peek(("ELO", agent_name))
     except KeyError:
-      if ('checkpoint_' not in agent_name): # Our default is 1200, except for checkpoints cloned from main
+      if (('checkpoint_' not in agent_name) or (main_agent_name is None)): # Our default is 1200, except for checkpoints cloned from main
         algorithm.metrics.log_value(("ELO", agent_name),1200, reduce="lifetime_sum")
         return 1200
       main_elo = get_elo_rating(algorithm, main_agent_name, main_agent_name) # New checkpoints inherit from main
@@ -291,9 +291,9 @@ def update_elo(algorithm: Algorithm, sampled_episodes, main_agent_name):
 def get_weights(algorithm, opponents, main_agent_name):
   if (len(opponents)==0):
     return None
-  diffs = np.array([
+  diffs = (np.array([
         get_elo_rating(algorithm, o.name, main_agent_name) for o in opponents
-    ]) - get_elo_rating(algorithm, main_agent_name, main_agent_name)
+    ]) - get_elo_rating(algorithm, main_agent_name, main_agent_name)).abs()
   diffs -= diffs.min()
   diffs /= (diffs.max()+1e-6) # Normalize
   weights = np.exp(-(diffs)**2 / (2*diffs.var()+1e-6))
@@ -301,9 +301,12 @@ def get_weights(algorithm, opponents, main_agent_name):
   return weights
 
 def print_elo_table(elo):
-  sorted_keys = sorted([k for k in elo.keys()])
-  table_data = [[k, elo[k]] for k in sorted_keys]
-  print(tabulate(table_data, headers=["Checkpoint", "Rating"], tablefmt='rounded_outline', floatfmt=".0f"))
+  sorted_keys, v = sorted([k for k in elo.keys()]), list(elo.values())
+  min_elo, max_elo = np.min(v)-1e-6, np.max(v)
+  gap = max_elo - min_elo
+  table_data = [[k, f'\033[38;2;{int(255*min(1, 2*(1-(elo[k]-min_elo)/gap)))};{int(255*min(1, 2*(elo[k]-min_elo)/gap))};0m{elo[k]}\033[0m'] for k in sorted_keys]
+  floatfmt = ".0f" if max_elo > 1000 else ".3f"
+  print(tabulate(table_data, headers=["Checkpoint", "Rating"], tablefmt='rounded_outline', floatfmt=floatfmt))
 
 def elo_eval_fn(
     algorithm: Algorithm,

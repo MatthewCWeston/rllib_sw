@@ -1,7 +1,3 @@
-'''
-    For now, just optimize an agent against another agent initialized from the same weights
-'''
-
 import os
 import sys
 import importlib.util
@@ -50,6 +46,7 @@ parser = add_rllib_example_script_args(default_reward=40, default_iters=50)
 parser.set_defaults(
     enable_new_api_stack=True,
     num_env_runners=0,
+    evaluation_num_env_runners=1,
 )
 # Env 
 parser.add_argument("--env-config", type=json.loads, default={})
@@ -72,6 +69,9 @@ parser.add_argument("--lambda_", type=float, default=0.8) # Bootstrapping ratio 
 # We'll need to load in a checkpoint, and it might be beneficial to cold-start the value function
 parser.add_argument("--restore-checkpoint", type=os.path.abspath)
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
+# Multiple agents?
+parser.add_argument("--add-v0", action="store_true") # Add a v_zero agent, to train against a static opponent
+parser.add_argument("--no-load-main", action="store_true") # When loading, don't restore the learning module.
 # Miscellaneous/logging
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--elo-eval", action="store_true")
@@ -97,7 +97,6 @@ config = (
         env="env",
         env_config=args.env_config,
     )
-    .framework("torch")
     .training(
         train_batch_size=args.batch_size,
         minibatch_size=args.minibatch_size,
@@ -134,11 +133,20 @@ act_space = env.action_spaces[agent_id]
 
 # Architecture
 specs = {}
-def atm_fn(agent_id, episode, **kwargs):
-    return module_id
+agents = [module_id]
+if (args.add_v0):
+    agents.append('main_v0')
+    def atm_fn(agent_id, episode, **kwargs):
+        if (agent_id==0):
+            return module_id
+        else:
+            return 'main_v0'
+else:
+    def atm_fn(agent_id, episode, **kwargs):
+        return module_id
 
 lrelu_override = args.activation_fn=="leakyrelu"
-for a in [module_id]:
+for a in agents:
     specs[a] = RLModuleSpec(
         catalog_class=AttentionPPOCatalog,
         observation_space=obs_space,
@@ -159,7 +167,7 @@ for a in [module_id]:
     )
     
 config.multi_agent(
-    policies=[module_id],
+    policies=agents,
     policy_mapping_fn=atm_fn,
     policies_to_train=[module_id], # Only the learned policy should be trained.
 )
@@ -171,10 +179,14 @@ config.env_runners(
 # Load policy if applicable.
 if (args.restore_checkpoint):
     print(f"Restoring checkpoint: {args.restore_checkpoint}")
+    dest_modules = agents.copy()
+    if (args.no_load_main):
+        dest_modules.remove(module_id)
     callbacks.append(functools.partial(
         LoadOnAlgoInitCallback,
         ckpt_path=args.restore_checkpoint,
         module_name=module_id,
+        dest_module_names=dest_modules, # Restore weights into all active agents
         vf_cold_start=args.vf_cold_start,
     ))
 
@@ -184,7 +196,7 @@ if (args.elo_eval):
     print(f"Using ELO evaluation: {checkpoint_path}")
     config.evaluation(
         evaluation_parallel_to_training=True,
-        evaluation_num_env_runners=1,
+        evaluation_num_env_runners=args.evaluation_num_env_runners,
         custom_evaluation_function=functools.partial(elo_eval_fn, checkpoint_dir=checkpoint_path, main_agent_name=module_id),
         evaluation_interval=1,  # How often to evaluate while training
         evaluation_duration=args.evaluation_duration, # Episodes to evaluate (can be 'auto' when parallel)
@@ -206,7 +218,7 @@ config.rl_module(
 # Add callbacks
 config.callbacks(callbacks)
     
-#''' Test it out with this train loop
+''' Test it out with this train loop
 algo = config.build_algo()
 num_iters = args.stop_iters
 
@@ -220,4 +232,4 @@ for i in range(num_iters):
 '''
 
 # Run the experiment.
-#run_tune_training(config,args,stop={TRAINING_ITERATION_TIMER: args.stop_iters,}) #'''
+run_tune_training(config,args,stop={TRAINING_ITERATION_TIMER: args.stop_iters,}) #'''
