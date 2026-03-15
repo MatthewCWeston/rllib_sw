@@ -1,0 +1,202 @@
+from collections import defaultdict
+
+import numpy as np
+
+from ray.rllib.callbacks.callbacks import RLlibCallback
+from ray.rllib.core.rl_module.rl_module import RLModuleSpec
+from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
+from ray.rllib.utils.metrics import ENV_RUNNER_RESULTS
+from ray.rllib.core import (
+	COMPONENT_RL_MODULE,
+	COMPONENT_LEARNER,
+	COMPONENT_LEARNER_GROUP,
+)
+
+from agent_comparison.BradleyTerry_rllib import get_BT_skill
+from callbacks.elo_eval import print_elo_table
+
+MAIN_MODULE = 'my_policy'
+
+### Log agent performance using Bradley-Terry
+def build_wins(module_list, win_counts_t):
+	wcs = np.zeros((len(module_list), len(module_list)))
+	for i, a1 in enumerate(module_list):
+		for j, a2 in enumerate(module_list):
+			if (a1==a2):
+				continue
+			wcs[i][j] = win_counts_t[a1][a2] # How many times as a1 beaten a2?
+	#print(wcs)
+	return wcs
+
+### Probabilistic fictitious self play
+def pfsp(agent, opponents, wr, rng):
+	weights = np.array([wr[o][agent] for o in opponents])
+	weights = weights**2 # Weight by square of opponent win rate
+	wr_sum = weights.sum()
+	if (wr_sum == 0):
+		return rng.choice(opponents)
+	return rng.choice(opponents, p=weights/wr_sum)
+
+def create_atm_fn(agent_names, wr, just_added):
+	''' agent_names is a list of all league agents' names.
+	wr is a dictionary of win rates '''
+	def atm_fn(agent_id, episode, **kwargs):
+		eid = abs(hash(episode.id_))
+		rng = np.random.default_rng(seed=eid)
+		if (eid % 2 == 0) != (agent_id==0):
+			return MAIN_MODULE
+		# Select an opponent.
+		valid_options = list(filter(lambda s: s!=MAIN_MODULE and s not in just_added, agent_names))
+		if (len(valid_options)==0):
+			return MAIN_MODULE
+		return pfsp(MAIN_MODULE, valid_options, wr, rng)
+	return atm_fn
+
+def get_mc_string(agent1, agent2):
+	return '-'.join(sorted([agent1, agent2]))
+
+class PFSPCallback(RLlibCallback):
+	def __init__(self, league_initial, clone_every=10):
+		super().__init__()
+		self.clone_every = clone_every
+		self.league = league_initial
+		self.win_counts = defaultdict(lambda: defaultdict(lambda:0))
+		self.match_counts = defaultdict(lambda:0)
+		self.version_counter = defaultdict(lambda: 1)
+		# Track previous totals to facilitate stat inheriting
+		self.win_counts_t = defaultdict(lambda: defaultdict(lambda:0))
+		self.match_counts_t = defaultdict(lambda:0)
+		# Hacky fix for newly added modules not working properly
+		self.just_added = []
+
+	def on_sample_end(self, *, env_runner, metrics_logger, samples, **kwargs,) -> None:
+		#to_print = []
+		for episode in samples:
+			if (episode.is_done):
+				rewards = episode.get_rewards()
+				assert len(rewards)==2
+				w_agent, l_agent = list(rewards.keys())
+				# Update stats
+				outcome = np.sum(rewards[w_agent]) - np.sum(rewards[l_agent])
+				if (outcome < 0):
+					w_agent, l_agent = l_agent, w_agent
+				w_module = episode.module_for(w_agent)
+				l_module = episode.module_for(l_agent)
+				#to_print.append(f"{len(to_print)} EPISODE: {episode.id_} {w_module} / {l_module}: {outcome}")
+				self.match_counts[get_mc_string(w_module, l_module)] += 1
+				metrics_logger.log_value(
+					f"match_count_{get_mc_string(w_module, l_module)}",
+					1.0,
+					reduce='lifetime_sum'
+				)
+				if (outcome != 0):
+					metrics_logger.log_value(
+						f"win_count_{w_module}{l_module}",
+						0.5 if (w_module==l_module) else 1,
+						reduce='lifetime_sum'
+					)
+			else:
+				pass
+				#to_print.append(f"{len(to_print)} EPISODE: {episode.id_} {episode.module_for(0)} {episode.module_for(1)} UNF")
+		#print(' | '.join(to_print))
+
+	def clone_agent(self, algorithm, to_clone):
+		# Clone an agent
+		vid = self.version_counter[to_clone]
+		self.version_counter[to_clone] += 1
+		new_module_id = f"{to_clone}_v{vid}"
+		self.just_added.append(new_module_id)
+		self.league.append(new_module_id)
+		print(f"adding new opponent to the mix ({new_module_id}).")
+		for opponent in list(self.win_counts[to_clone].keys()):
+			# Reduce after cloning, to provide a 'fresh start'
+			self.match_counts[get_mc_string(to_clone, opponent)] /= 10
+			self.win_counts[to_clone][opponent] /= 10
+			if (to_clone != opponent): # Avoid double-reduction
+				self.win_counts[opponent][to_clone] /= 10
+		cloned_module = algorithm.get_module(to_clone)
+		algorithm.add_module(
+			module_id=new_module_id,
+			module_spec=RLModuleSpec.from_module(cloned_module),
+		)
+		module_updates = {new_module_id: cloned_module.get_state(),}
+		# Syncs weights across everything
+		algorithm.set_state({
+			COMPONENT_LEARNER_GROUP: {
+				COMPONENT_LEARNER: {
+					COMPONENT_RL_MODULE: module_updates
+				}
+			},
+		})
+
+	def build_stats_from_results(self, result):
+		league_size = len(self.league)
+		wrs = defaultdict(lambda:{})
+		new_matches = {} # Just for debugging / observation
+		for i in range(league_size-1):
+			a = self.league[i]
+			for j in range(i, league_size):
+				b = self.league[j]
+				# Record statistics involving a learning agent
+				if (('_v' not in a) or ('_v' not in b)):
+					k = get_mc_string(a,b)
+					mc_total = result.get(f"match_count_{k}", 0)
+					wcab_total = result.get(f"win_count_{a}{b}", 0)
+					wcba_total = result.get(f"win_count_{b}{a}", 0)
+					new_matches[k] = mc_total - self.match_counts_t[k]
+					# Update match count tracker
+					self.match_counts[k] += new_matches[k]
+					self.match_counts_t[k] = mc_total # tracks previous result stat
+					# Update win count tracker
+					self.win_counts[a][b] += wcab_total - self.win_counts_t[a][b]
+					self.win_counts_t[a][b] = wcab_total
+					if (a!=b): # Don't double-count wins for self-play
+						self.win_counts[b][a] += wcba_total - self.win_counts_t[b][a]
+						self.win_counts_t[b][a] = wcba_total
+					if (self.match_counts[k] != 0):
+						wrs[a][b] = self.win_counts[a][b] / self.match_counts[k]
+						wrs[b][a] = self.win_counts[b][a] / self.match_counts[k]
+					else:
+						wrs[a][b] = 1/3
+						wrs[b][a] = 1/3 # Initialize as 33/33/33
+		return wrs, new_matches
+
+	def update_atm_fn(self, algorithm, wr):
+		# Set new mapping function
+		agent_to_module_mapping_fn = create_atm_fn(self.league, wr, self.just_added)
+		algorithm.config._is_frozen = False
+		algorithm.config.multi_agent(policy_mapping_fn=agent_to_module_mapping_fn)
+		algorithm.config.freeze()
+		# Add to (training) EnvRunners.
+		def _add(_env_runner, _module_spec=None):
+			_env_runner.config.multi_agent(
+				policy_mapping_fn=agent_to_module_mapping_fn,
+			)
+			return MultiRLModuleSpec.from_module(_env_runner.module)
+		algorithm.env_runner_group.foreach_env_runner(_add)
+
+	def on_train_result(self, *, algorithm, metrics_logger=None, result, **kwargs):
+		# Rebuild a set of stats with information from our env runners
+		wrs, nm = self.build_stats_from_results(result[ENV_RUNNER_RESULTS])
+		self.just_added = []
+		iter = algorithm.iteration
+		print(f"Iter={iter}:")
+		print(f"Matchups: {dict(self.match_counts_t)}")
+		print(f"Matchups (for probabilities): {dict(self.match_counts)}")
+		print(f"Win rates (main):")
+		for o, wr in wrs[MAIN_MODULE].items():
+			new_matches = nm[get_mc_string(MAIN_MODULE,o)]
+			if (new_matches!=0):
+				wr_inv = wrs[o][MAIN_MODULE]
+				dw = 1 - wr - wr_inv
+				print(f'\t\t{o}: {wr:.02f}-{dw:.02f}-{wr_inv:.02f} (+{new_matches})')
+		if (iter)%self.clone_every==0:
+			self.clone_agent(algorithm, MAIN_MODULE)
+		# Update mapping function, reweighting and adding new module if needed
+		self.update_atm_fn(algorithm, dict(wrs))
+		# Update and log BT scores (use the win ocunter that soft-resets)
+		win_ar = build_wins(self.league, self.win_counts)
+		bt_dict = get_BT_skill(self.league, win_ar)
+		for k, v in bt_dict.items():
+			algorithm.metrics.log_value(("BradleyTerry", k), v)
+		print_elo_table(algorithm.metrics.peek("BradleyTerry"))

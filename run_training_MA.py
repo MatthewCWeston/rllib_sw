@@ -32,12 +32,9 @@ from ray.rllib.utils.metrics import (
 
 from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
-from classes.curiosity import add_curiosity
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
 from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
-from callbacks.curriculum_learning_callback import CurriculumLearningCallback
-from callbacks.render_callback import RenderCallback
-from callbacks.elo_eval import elo_eval_fn
+from callbacks.pfsp_callback import MAIN_MODULE
 
 from environments.SW_1v1_env import SW_1v1_env
 
@@ -72,6 +69,8 @@ parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore valu
 # Multiple agents?
 parser.add_argument("--add-v0", action="store_true") # Add a v_zero agent, to train against a static opponent
 parser.add_argument("--no-load-main", action="store_true") # When loading, don't restore the learning module.
+parser.add_argument("--pfsp", action="store_true") # If set, use PFSP instead of SP
+parser.add_argument("--steps-to-clone", type=int, default=50) # Clone PFSP agent every K steps
 # Miscellaneous/logging
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--elo-eval", action="store_true")
@@ -127,26 +126,25 @@ config = (
 # Handle envs in MA format
 env = target_env(args.env_config) # sample
 agent_id = env.agents[0]
-module_id = 'my_policy'
 obs_space = env.observation_spaces[agent_id]
 act_space = env.action_spaces[agent_id]
 
 # Architecture
 specs = {}
-agents = [module_id]
+modules = [MAIN_MODULE]
 if (args.add_v0):
-    agents.append('main_v0')
+    modules.append('main_v0')
     def atm_fn(agent_id, episode, **kwargs):
         if (agent_id==0):
-            return module_id
+            return MAIN_MODULE
         else:
             return 'main_v0'
 else:
     def atm_fn(agent_id, episode, **kwargs):
-        return module_id
+        return MAIN_MODULE
 
 lrelu_override = args.activation_fn=="leakyrelu"
-for a in agents:
+for a in modules:
     specs[a] = RLModuleSpec(
         catalog_class=AttentionPPOCatalog,
         observation_space=obs_space,
@@ -167,9 +165,9 @@ for a in agents:
     )
     
 config.multi_agent(
-    policies=agents,
+    policies=modules,
     policy_mapping_fn=atm_fn,
-    policies_to_train=[module_id], # Only the learned policy should be trained.
+    policies_to_train=[MAIN_MODULE], # Only the learned policy should be trained.
 )
     
 config.env_runners(
@@ -179,31 +177,41 @@ config.env_runners(
 # Load policy if applicable.
 if (args.restore_checkpoint):
     print(f"Restoring checkpoint: {args.restore_checkpoint}")
-    dest_modules = agents.copy()
+    dest_modules = modules.copy()
     if (args.no_load_main):
-        dest_modules.remove(module_id)
+        dest_modules.remove(MAIN_MODULE)
     callbacks.append(functools.partial(
         LoadOnAlgoInitCallback,
         ckpt_path=args.restore_checkpoint,
-        module_name=module_id,
+        module_name=MAIN_MODULE,
         dest_module_names=dest_modules, # Restore weights into all active agents
         vf_cold_start=args.vf_cold_start,
     ))
 
 # Evaluate under a fixed config demonstrating the hardest conditions
 if (args.elo_eval): 
+    from callbacks.elo_eval import elo_eval_fn
+    assert not args.pfsp # Mutually exclusive
     checkpoint_path = os.path.join(args.results_path, args.experiment_name, args.trial_name)
     print(f"Using ELO evaluation: {checkpoint_path}")
     config.evaluation(
         evaluation_parallel_to_training=True,
         evaluation_num_env_runners=args.evaluation_num_env_runners,
-        custom_evaluation_function=functools.partial(elo_eval_fn, checkpoint_dir=checkpoint_path, main_agent_name=module_id),
+        custom_evaluation_function=functools.partial(elo_eval_fn, checkpoint_dir=checkpoint_path, main_agent_name=MAIN_MODULE),
         evaluation_interval=1,  # How often to evaluate while training
         evaluation_duration=args.evaluation_duration, # Episodes to evaluate (can be 'auto' when parallel)
     )
+elif (args.pfsp):
+    from callbacks.pfsp_callback import PFSPCallback
+    callbacks.append(functools.partial(PFSPCallback,
+                      clone_every=args.steps_to_clone,
+                      league_initial=modules,
+                      ))
+    
 
 # Record matches every K epochs
 if (args.render_every > 0):
+    from callbacks.render_callback import RenderCallback
     callbacks.append(functools.partial(
             RenderCallback,
             render_every=args.render_every
@@ -226,7 +234,7 @@ for i in range(num_iters):
   results = algo.train()
   if ENV_RUNNER_RESULTS in results:
       mean_return = results[ENV_RUNNER_RESULTS]['agent_episode_returns_mean']
-      vf_loss = results['learners'][module_id]['vf_loss']
+      vf_loss = results['learners'][MAIN_MODULE]['vf_loss']
       mean_return = [(k, f'{v:.2f}') for k, v in mean_return.items()]
       print(f"iter={i+1} VF loss={vf_loss:.2f} R={mean_return}")
 '''
