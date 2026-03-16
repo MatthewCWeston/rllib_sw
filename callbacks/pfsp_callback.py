@@ -66,10 +66,13 @@ class PFSPCallback(RLlibCallback):
 		# Track previous totals to facilitate stat inheriting
 		self.win_counts_t = defaultdict(lambda: defaultdict(lambda:0))
 		self.match_counts_t = defaultdict(lambda:0)
+		# Track previous best Bradley-Terry values
+		self.prev_best = 0
 		# Hacky fix for newly added modules not working properly
 		self.just_added = []
 
 	def on_sample_end(self, *, env_runner, metrics_logger, samples, **kwargs,) -> None:
+		# This function is called by every env runner; results are collated afterwards.
 		#to_print = []
 		for episode in samples:
 			if (episode.is_done):
@@ -176,6 +179,7 @@ class PFSPCallback(RLlibCallback):
 		algorithm.env_runner_group.foreach_env_runner(_add)
 
 	def on_train_result(self, *, algorithm, metrics_logger=None, result, **kwargs):
+		# This function is called only once, on a consistent worker.
 		# Rebuild a set of stats with information from our env runners
 		wrs, nm = self.build_stats_from_results(result[ENV_RUNNER_RESULTS])
 		self.just_added = []
@@ -190,13 +194,16 @@ class PFSPCallback(RLlibCallback):
 				wr_inv = wrs[o][MAIN_MODULE]
 				dw = 1 - wr - wr_inv
 				print(f'\t\t{o}: {wr:.02f}-{dw:.02f}-{wr_inv:.02f} (+{new_matches})')
-		if (iter)%self.clone_every==0:
-			self.clone_agent(algorithm, MAIN_MODULE)
-		# Update mapping function, reweighting and adding new module if needed
-		self.update_atm_fn(algorithm, dict(wrs))
-		# Update and log BT scores (use the win ocunter that soft-resets)
+		# Update and log BT scores (use the win counter that soft-resets)
 		win_ar = build_wins(self.league, self.win_counts)
 		bt_dict = get_BT_skill(self.league, win_ar)
 		for k, v in bt_dict.items():
 			algorithm.metrics.log_value(("BradleyTerry", k), v)
-		print_elo_table(algorithm.metrics.peek("BradleyTerry"))
+		bt_dict = algorithm.metrics.peek("BradleyTerry")
+		print_elo_table(bt_dict)
+		# Clone the agent if it's doing better than its previous best
+		if ((iter)%self.clone_every==0) and (bt_dict[MAIN_MODULE] > self.prev_best):
+			self.clone_agent(algorithm, MAIN_MODULE)
+			self.prev_best = bt_dict[MAIN_MODULE]
+		# Update mapping function, reweighting and adding new module if needed
+		self.update_atm_fn(algorithm, dict(wrs))

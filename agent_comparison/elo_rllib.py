@@ -146,7 +146,7 @@ parser.add_argument("--restore-checkpoint", type=os.path.abspath)
 # Miscellaneous/logging
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--elo-eval", action="store_true")
-parser.add_argument("--agent-folder", type=os.path.abspath, default="./checkpoints/naive_self_play_checkpoints")
+parser.add_argument("--agent-folder", type=os.path.abspath)
 # Resources
 parser.add_argument("--envs-per-env-runner", type=int, default=4)
 

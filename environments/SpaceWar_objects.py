@@ -95,11 +95,11 @@ class Ship():
     REPR_SIZE = 8
     ALL_AUG_DIM = 4
     OTHER_AUG_DIM = ALL_AUG_DIM + 6
-    def __init__(self, pos, ang, size=PLAYER_SIZE):
+    def __init__(self, pos, ang, size=PLAYER_SIZE, vel=None):
         self.pos = pos
         self.ang = ang
         self.stored_missiles = NUM_MISSILES
-        self.vel = np.array([0.,0.])
+        self.vel = vel if vel is not None else np.array([0.,0.])
         self.reloadTime = 0
         self.last_act = [0,0,0]
         self.size = size
@@ -180,7 +180,7 @@ class Ship():
                 obs = np.concatenate([obs, aug_vec])
             return obs.clip(-1,1) # avoid rounding errors
     def render(self, draw,
-                dim, hdim, ssz, terminated, ego=None):
+                dim, hdim, ssz, terminated, ego=None, reward=0):
         ''' Render this object using draw, adjust for ego if needed.'''
         psz = self.size * dim
         if (ego is None):
@@ -197,13 +197,6 @@ class Ship():
                 for i in range(2):
                     ss = np.random.uniform(-1.0, 1.0, 2) * ssz/2
                     draw.line((p[0]+ss[0], p[1]+ss[1], p[0]-ss[0], p[1]-ss[1]), fill='white', width=1)
-                # wrap bounds
-                #draw.ellipse([p[0]-hdim,p[1]-hdim,p[0]+hdim,p[1]+hdim], outline='white')
-                '''ncp = (auv+1)*hdim
-                for a in [-1,1]: # Nearest corner
-                    ss = np.array([1,a]) * ssz/2
-                    draw.line((ncp[0]+ss[0], ncp[1]+ss[1], ncp[0]-ss[0], ncp[1]-ss[1]), 
-                        fill='red', width=1)'''
                 # Raycasts to nearest edges
                 t = auv[0] * hdim
                 draw.line((hdim, hdim, hdim+t, hdim), fill='red', width=1)
@@ -225,7 +218,7 @@ class Ship():
         a = ang*np.pi/180
         rm = np.array([[np.cos(a), -np.sin(a)],[np.sin(a), np.cos(a)]])
         ppts = [(x[0], x[1]) for x in np.dot(ppts, rm) + p]
-        draw.ellipse((p[0]-psz/2, p[1]-psz/2, p[0]+psz/2, p[1]+psz/2), outline='gray' if not terminated else 'red')
+        draw.ellipse((p[0]-psz/2, p[1]-psz/2, p[0]+psz/2, p[1]+psz/2), outline='gray' if not terminated else 'lime' if reward>0 else 'red' if reward < 0 else 'yellow')
         draw.polygon(ppts, fill='white')
         # Draw the thruster flare
         if (self.last_act[0]==1):

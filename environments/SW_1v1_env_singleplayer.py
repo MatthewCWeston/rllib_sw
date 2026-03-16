@@ -236,7 +236,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             draw.rectangle((rs,rs,dim-rs,dim-rs), outline='white')
         # Draw the player
         ship = self.playerShips[0]
-        ship.render(draw, dim, hdim, ssz, self.terminated, ego=ego)
+        ship.render(draw, dim, hdim, ssz, self.terminated, reward=self.rewards[0], ego=ego)
         # Draw the target
         target = self.playerShips[1]
         target.render(draw, hdim, ego)
