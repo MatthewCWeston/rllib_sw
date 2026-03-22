@@ -19,31 +19,30 @@ from ray.rllib.core.rl_module.default_model_config import DefaultModelConfig
 from ray.tune.registry import register_env
 
 from ray.rllib.utils.test_utils import (
-    add_rllib_example_script_args,
-    run_rllib_example_script_experiment,
+	add_rllib_example_script_args,
+	run_rllib_example_script_experiment,
 )
 from ray.rllib.utils.metrics import (
-    ENV_RUNNER_RESULTS,
-    EPISODE_RETURN_MEAN,
-    EPISODE_RETURN_MIN,
-    TRAINING_ITERATION_TIMER,
-    NUM_ENV_STEPS_SAMPLED_LIFETIME,
+	ENV_RUNNER_RESULTS,
+	EPISODE_RETURN_MEAN,
+	EPISODE_RETURN_MIN,
+	TRAINING_ITERATION_TIMER,
+	NUM_ENV_STEPS_SAMPLED_LIFETIME,
 )
 
 from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
-from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
-from callbacks.pfsp_callback import MAIN_MODULE
+from callbacks.pfsp_callback import MAIN_MODULE, MAX_OPPONENTS
 
 from environments.SW_1v1_env import SW_1v1_env
 
 # Handle arguments
 parser = add_rllib_example_script_args(default_reward=40, default_iters=50)
 parser.set_defaults(
-    enable_new_api_stack=True,
-    num_env_runners=0,
-    evaluation_num_env_runners=1,
+	enable_new_api_stack=True,
+	num_env_runners=0,
+	evaluation_num_env_runners=1,
 )
 # Env 
 parser.add_argument("--env-config", type=json.loads, default={})
@@ -71,6 +70,7 @@ parser.add_argument("--add-v0", action="store_true") # Add a v_zero agent, to tr
 parser.add_argument("--no-load-main", action="store_true") # When loading, don't restore the learning module.
 parser.add_argument("--pfsp", action="store_true") # If set, use PFSP instead of SP
 parser.add_argument("--steps-to-clone", type=int, default=50) # Clone PFSP agent every K steps
+parser.add_argument("--identity-aug", action="store_true") # Augment the critic with the opposing agent's identity
 # Miscellaneous/logging
 parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
 parser.add_argument("--elo-eval", action="store_true")
@@ -91,37 +91,37 @@ register_env("env", lambda cfg: target_env(cfg))
 # Configure run
 callbacks = []
 config = (
-    PPOConfig()
-    .environment(
-        env="env",
-        env_config=args.env_config,
-    )
-    .training(
-        train_batch_size=args.batch_size,
-        minibatch_size=args.minibatch_size,
-        gamma=args.gamma,
-        lr=args.lr,
-        vf_clip_param=float(args.vf_clip),
-        use_kl_loss=False,  # From hyperparameter search
-        lambda_=args.lambda_,
-        learner_class=BatchedCriticPPOLearner,
-        learner_config_dict={
-            'critic_batch_size': args.critic_batch_size, # Just to avoid OOM; not a hyperparameter
-            'vf_cold_start': args.vf_cold_start, # Pre-train the value function for K minibatches
-        },
-        grad_clip=args.grad_clip if hasattr(args, 'grad_clip') else None,
-        grad_clip_by="global_norm",
-    )
-    .learners(
-        num_gpus_per_learner=args.gpus_per_learner,
-    )
-    .env_runners(
-        num_cpus_per_env_runner=args.cpus_per_env_runner,
-        num_gpus_per_env_runner=0 if args.num_env_runners==0 else (torch.cuda.device_count() - args.gpus_per_learner) / args.num_env_runners,
-        num_envs_per_env_runner=args.envs_per_env_runner,
-        num_env_runners=args.num_env_runners,
-        remote_worker_envs=args.remote_worker_envs,
-    )
+	PPOConfig()
+	.environment(
+		env="env",
+		env_config=args.env_config,
+	)
+	.training(
+		train_batch_size=args.batch_size,
+		minibatch_size=args.minibatch_size,
+		gamma=args.gamma,
+		lr=args.lr,
+		vf_clip_param=float(args.vf_clip),
+		use_kl_loss=False,	# From hyperparameter search
+		lambda_=args.lambda_,
+		learner_class=BatchedCriticPPOLearner,
+		learner_config_dict={
+			'critic_batch_size': args.critic_batch_size, # Just to avoid OOM; not a hyperparameter
+			'vf_cold_start': args.vf_cold_start, # Pre-train the value function for K minibatches
+		},
+		grad_clip=args.grad_clip if hasattr(args, 'grad_clip') else None,
+		grad_clip_by="global_norm",
+	)
+	.learners(
+		num_gpus_per_learner=args.gpus_per_learner,
+	)
+	.env_runners(
+		num_cpus_per_env_runner=args.cpus_per_env_runner,
+		num_gpus_per_env_runner=0 if args.num_env_runners==0 else (torch.cuda.device_count() - args.gpus_per_learner) / args.num_env_runners,
+		num_envs_per_env_runner=args.envs_per_env_runner,
+		num_env_runners=args.num_env_runners,
+		remote_worker_envs=args.remote_worker_envs,
+	)
 )
 # Handle envs in MA format
 env = target_env(args.env_config) # sample
@@ -133,99 +133,114 @@ act_space = env.action_spaces[agent_id]
 specs = {}
 modules = [MAIN_MODULE]
 if (args.add_v0):
-    modules.append('main_v0')
-    def atm_fn(agent_id, episode, **kwargs):
-        if (agent_id==0):
-            return MAIN_MODULE
-        else:
-            return 'main_v0'
+	v0_name = f'{MAIN_MODULE}_v0'
+	modules.append(v0_name)
+	def atm_fn(agent_id, episode, **kwargs):
+		if (agent_id==0):
+			return MAIN_MODULE
+		else:
+			return v0_name
 else:
-    def atm_fn(agent_id, episode, **kwargs):
-        return MAIN_MODULE
+	def atm_fn(agent_id, episode, **kwargs):
+		return MAIN_MODULE
 
 lrelu_override = args.activation_fn=="leakyrelu"
 for a in modules:
-    specs[a] = RLModuleSpec(
-        catalog_class=AttentionPPOCatalog,
-        observation_space=obs_space,
-        action_space=act_space,
-        model_config={
-            "attention_emb_dim": args.attn_dim,
-            "attn_ff_dim": args.attn_ff_dim,
-            "head_fcnet_hiddens": tuple(args.fcnet),
-            "head_fcnet_activation": "relu" if lrelu_override else args.activation_fn,
-            "override_activation_fn": lrelu_override,
-            "vf_share_layers": False,
-            "head_fcnet_use_layernorm": args.use_layernorm,
-            "attn_layers": 1,
-            "full_transformer": False,
-            "recursive": False,
-            "dropout": args.dropout,
-        },
-    )
-    
+	specs[a] = RLModuleSpec(
+		catalog_class=AttentionPPOCatalog,
+		#observation_space=obs_space, # Doesn't work when we're using an obs space preprocessor
+		action_space=act_space,
+		model_config={
+			"attention_emb_dim": args.attn_dim,
+			"attn_ff_dim": args.attn_ff_dim,
+			"head_fcnet_hiddens": tuple(args.fcnet),
+			"head_fcnet_activation": "relu" if lrelu_override else args.activation_fn,
+			"override_activation_fn": lrelu_override,
+			"vf_share_layers": False,
+			"head_fcnet_use_layernorm": args.use_layernorm,
+			"attn_layers": 1,
+			"full_transformer": False,
+			"recursive": False,
+			"dropout": args.dropout,
+		},
+	)
+	
 config.multi_agent(
-    policies=modules,
-    policy_mapping_fn=atm_fn,
-    policies_to_train=[MAIN_MODULE], # Only the learned policy should be trained.
+	policies=modules,
+	policy_mapping_fn=atm_fn,
+	policies_to_train=[MAIN_MODULE], # Only the learned policy should be trained.
 )
-    
-config.env_runners(
-    num_env_runners=args.num_env_runners,
-)
-        
+		
 # Load policy if applicable.
 if (args.restore_checkpoint):
-    print(f"Restoring checkpoint: {args.restore_checkpoint}")
-    dest_modules = modules.copy()
-    if (args.no_load_main):
-        dest_modules.remove(MAIN_MODULE)
-    callbacks.append(functools.partial(
-        LoadOnAlgoInitCallback,
-        ckpt_path=args.restore_checkpoint,
-        module_name=MAIN_MODULE,
-        dest_module_names=dest_modules, # Restore weights into all active agents
-        vf_cold_start=args.vf_cold_start,
-    ))
+	from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
+	print(f"Restoring checkpoint: {args.restore_checkpoint}")
+	dest_modules = modules.copy()
+	if (args.no_load_main):
+		dest_modules.remove(MAIN_MODULE)
+	callbacks.append(functools.partial(
+		LoadOnAlgoInitCallback,
+		ckpt_path=args.restore_checkpoint,
+		module_name=MAIN_MODULE,
+		dest_module_names=dest_modules, # Restore weights into all active agents
+		vf_cold_start=args.vf_cold_start,
+	))
 
 # Evaluate under a fixed config demonstrating the hardest conditions
 if (args.elo_eval): 
-    from callbacks.elo_eval import elo_eval_fn
-    assert not args.pfsp # Mutually exclusive
-    checkpoint_path = os.path.join(args.results_path, args.experiment_name, args.trial_name)
-    print(f"Using ELO evaluation: {checkpoint_path}")
-    config.evaluation(
-        evaluation_parallel_to_training=True,
-        evaluation_num_env_runners=args.evaluation_num_env_runners,
-        custom_evaluation_function=functools.partial(elo_eval_fn, checkpoint_dir=checkpoint_path, main_agent_name=MAIN_MODULE),
-        evaluation_interval=1,  # How often to evaluate while training
-        evaluation_duration=args.evaluation_duration, # Episodes to evaluate (can be 'auto' when parallel)
-    )
+	from callbacks.elo_eval import elo_eval_fn
+	assert not args.pfsp # Mutually exclusive
+	checkpoint_path = os.path.join(args.results_path, args.experiment_name, args.trial_name)
+	print(f"Using ELO evaluation: {checkpoint_path}")
+	config.evaluation(
+		evaluation_parallel_to_training=True,
+		evaluation_num_env_runners=args.evaluation_num_env_runners,
+		custom_evaluation_function=functools.partial(elo_eval_fn, checkpoint_dir=checkpoint_path, main_agent_name=MAIN_MODULE),
+		evaluation_interval=1,	# How often to evaluate while training
+		evaluation_duration=args.evaluation_duration, # Episodes to evaluate (can be 'auto' when parallel)
+	)
 elif (args.pfsp):
-    from callbacks.pfsp_callback import PFSPCallback
-    callbacks.append(functools.partial(PFSPCallback,
-                      clone_every=args.steps_to_clone,
-                      league_initial=modules,
-                      ))
-    
+	from callbacks.pfsp_callback import PFSPCallback
+	callbacks.append(functools.partial(PFSPCallback,
+					  clone_every=args.steps_to_clone,
+					  league_initial=modules,
+					  id_aug=args.identity_aug,
+					  ))
+
+if (args.identity_aug): # Add a unique identity value to the critic's observations.
+	from callbacks.augment_critic_with_id import AugmentCriticWithOpponentID
+	print("Adding identity augmentation")
+	def module_name_to_id(mname):
+		if ('_v' not in mname):
+			return 0
+		else:
+			return int(mname.split('_v')[-1])+1
+	config.env_runners(
+		env_to_module_connector=lambda env, spaces, device: [
+			AugmentCriticWithOpponentID(
+				module_name_to_id=module_name_to_id,
+				max_opponents=MAX_OPPONENTS,
+				),
+		],
+	)
 
 # Record matches every K epochs
 if (args.render_every > 0):
-    from callbacks.render_callback import RenderCallback
-    callbacks.append(functools.partial(
-            RenderCallback,
-            render_every=args.render_every
-        ))
+	from callbacks.render_callback import RenderCallback
+	callbacks.append(functools.partial(
+			RenderCallback,
+			render_every=args.render_every
+		))
 
 # Add spec
 config.rl_module(
-    rl_module_spec=MultiRLModuleSpec(
-        rl_module_specs=specs
-    ),
+	rl_module_spec=MultiRLModuleSpec(
+		rl_module_specs=specs
+	),
 )
 # Add callbacks
 config.callbacks(callbacks)
-    
+	
 ''' Test it out with this train loop
 algo = config.build_algo()
 num_iters = args.stop_iters
@@ -233,10 +248,10 @@ num_iters = args.stop_iters
 for i in range(num_iters):
   results = algo.train()
   if ENV_RUNNER_RESULTS in results:
-      mean_return = results[ENV_RUNNER_RESULTS]['agent_episode_returns_mean']
-      vf_loss = results['learners'][MAIN_MODULE]['vf_loss']
-      mean_return = [(k, f'{v:.2f}') for k, v in mean_return.items()]
-      print(f"iter={i+1} VF loss={vf_loss:.2f} R={mean_return}")
+	  mean_return = results[ENV_RUNNER_RESULTS]['agent_episode_returns_mean']
+	  vf_loss = results['learners'][MAIN_MODULE]['vf_loss']
+	  mean_return = [(k, f'{v:.2f}') for k, v in mean_return.items()]
+	  print(f"iter={i+1} VF loss={vf_loss:.2f} R={mean_return}")
 '''
 
 # Run the experiment.

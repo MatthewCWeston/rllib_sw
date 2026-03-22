@@ -1,4 +1,5 @@
 import gymnasium as gym
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
 from gymnasium.spaces import MultiDiscrete, Box, Dict
 import numpy as np
 from PIL import Image, ImageDraw
@@ -34,7 +35,7 @@ class Dummy_Ship(Ship):
             draw.line([p[0],p[1], hdim,hdim], width=1, fill='green')
    
 
-class SW_lead_target(gym.Env):
+class SW_lead_target(MultiAgentEnv):
     def __init__(self, env_config={}):
         super().__init__()
         self.agents = self.possible_agents = [0]

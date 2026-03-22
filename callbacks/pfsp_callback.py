@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 import numpy as np
+import torch
 
 from ray.rllib.callbacks.callbacks import RLlibCallback
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
@@ -14,8 +15,10 @@ from ray.rllib.core import (
 
 from agent_comparison.BradleyTerry_rllib import get_BT_skill
 from callbacks.elo_eval import print_elo_table
+from callbacks.augment_critic_with_id import OPPONENT_ID
 
 MAIN_MODULE = 'my_policy'
+MAX_OPPONENTS = 50
 
 ### Log agent performance using Bradley-Terry
 def build_wins(module_list, win_counts_t):
@@ -56,9 +59,10 @@ def get_mc_string(agent1, agent2):
 	return '-'.join(sorted([agent1, agent2]))
 
 class PFSPCallback(RLlibCallback):
-	def __init__(self, league_initial, clone_every=10):
+	def __init__(self, league_initial, clone_every=10, id_aug=False):
 		super().__init__()
 		self.clone_every = clone_every
+		self.id_aug = id_aug # Does the main agent need ID embeddings updated when agents are cloned?
 		self.league = league_initial
 		self.win_counts = defaultdict(lambda: defaultdict(lambda:0))
 		self.match_counts = defaultdict(lambda:0)
@@ -73,7 +77,6 @@ class PFSPCallback(RLlibCallback):
 
 	def on_sample_end(self, *, env_runner, metrics_logger, samples, **kwargs,) -> None:
 		# This function is called by every env runner; results are collated afterwards.
-		#to_print = []
 		for episode in samples:
 			if (episode.is_done):
 				rewards = episode.get_rewards()
@@ -85,7 +88,6 @@ class PFSPCallback(RLlibCallback):
 					w_agent, l_agent = l_agent, w_agent
 				w_module = episode.module_for(w_agent)
 				l_module = episode.module_for(l_agent)
-				#to_print.append(f"{len(to_print)} EPISODE: {episode.id_} {w_module} / {l_module}: {outcome}")
 				self.match_counts[get_mc_string(w_module, l_module)] += 1
 				metrics_logger.log_value(
 					f"match_count_{get_mc_string(w_module, l_module)}",
@@ -98,10 +100,6 @@ class PFSPCallback(RLlibCallback):
 						0.5 if (w_module==l_module) else 1,
 						reduce='lifetime_sum'
 					)
-			else:
-				pass
-				#to_print.append(f"{len(to_print)} EPISODE: {episode.id_} {episode.module_for(0)} {episode.module_for(1)} UNF")
-		#print(' | '.join(to_print))
 
 	def clone_agent(self, algorithm, to_clone):
 		# Clone an agent
@@ -111,18 +109,28 @@ class PFSPCallback(RLlibCallback):
 		self.just_added.append(new_module_id)
 		self.league.append(new_module_id)
 		print(f"adding new opponent to the mix ({new_module_id}).")
-		for opponent in list(self.win_counts[to_clone].keys()):
-			# Reduce after cloning, to provide a 'fresh start'
+		for opponent in list(self.win_counts[to_clone].keys()): 
+			# Reduce source match and win counts by x10 after cloning, to provide it with a 'fresh start'
 			self.match_counts[get_mc_string(to_clone, opponent)] /= 10
 			self.win_counts[to_clone][opponent] /= 10
 			if (to_clone != opponent): # Avoid double-reduction
 				self.win_counts[opponent][to_clone] /= 10
+		# Add the new module
 		cloned_module = algorithm.get_module(to_clone)
 		algorithm.add_module(
 			module_id=new_module_id,
 			module_spec=RLModuleSpec.from_module(cloned_module),
 		)
 		module_updates = {new_module_id: cloned_module.get_state(),}
+		# The embedding for the previous ID is copied into the new one whenever an update occurs.
+		if (self.id_aug):
+			mm = algorithm.learner_group._learner._module[MAIN_MODULE]
+			critic_enc = mm.encoder.critic_encoder
+			emb = critic_enc.embs[OPPONENT_ID] # The Embedding module for opponent identity, which we want to update.
+			with torch.no_grad(): # Copy over id value from previous agent
+				emb.weight[vid+1,:] = emb.weight[vid,:].clone() # Main takes up index zero, our new agent's embedding is at vid+1
+				print(f"UPDATED ENCODER EMBEDDING WEIGHTS AT INDEX {vid+1}: {emb.weight.shape} {emb.weight.sum(dim=1)[:5]}")
+			module_updates[MAIN_MODULE] = mm.get_state()
 		# Syncs weights across everything
 		algorithm.set_state({
 			COMPONENT_LEARNER_GROUP: {
@@ -202,7 +210,7 @@ class PFSPCallback(RLlibCallback):
 		bt_dict = algorithm.metrics.peek("BradleyTerry")
 		print_elo_table(bt_dict)
 		# Clone the agent if it's doing better than its previous best
-		if ((iter)%self.clone_every==0) and (bt_dict[MAIN_MODULE] > self.prev_best):
+		if ((iter)%self.clone_every==0) and (bt_dict[MAIN_MODULE] > self.prev_best) and (len(self.league) < MAX_OPPONENTS):
 			self.clone_agent(algorithm, MAIN_MODULE)
 			self.prev_best = bt_dict[MAIN_MODULE]
 		# Update mapping function, reweighting and adding new module if needed
