@@ -22,7 +22,10 @@ def obs_to_tensor(obs):
             r[k] = obs_to_tensor(v)
         return r
     else:
-        return torch.tensor(obs).unsqueeze(0).float()
+        obs = torch.tensor(obs)
+        if (obs.dtype is torch.float64):
+          obs = obs.float().unsqueeze(0) # for non-Discrete observations
+        return obs
 
 def query_model(agent, obs, env, action_space):
     # Model expects a vector instead of a dictionary

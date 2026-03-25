@@ -28,7 +28,6 @@ def build_wins(module_list, win_counts_t):
 			if (a1==a2):
 				continue
 			wcs[i][j] = win_counts_t[a1][a2] # How many times as a1 beaten a2?
-	#print(wcs)
 	return wcs
 
 ### Probabilistic fictitious self play

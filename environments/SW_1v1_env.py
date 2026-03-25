@@ -1,6 +1,5 @@
 import gymnasium as gym
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
-from ray.rllib.utils.spaces.repeated import Repeated
 from gymnasium.spaces import MultiDiscrete, Box, Dict
 import numpy as np
 from PIL import Image, ImageDraw

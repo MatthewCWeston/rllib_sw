@@ -19,7 +19,7 @@ class LoadOnAlgoInitCallback(RLlibCallback):
         self,
         ckpt_path: str,
         module_name: str,
-        vf_cold_start: bool,
+        vf_cold_start: bool = False,
         dest_module_names: typing.Optional[typing.List[str]] = None,
     ):
         dest_module_names = dest_module_names or [module_name] # Potentially, load weights into new dest.
