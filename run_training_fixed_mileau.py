@@ -36,6 +36,7 @@ from ray.rllib.utils.metrics import (
 from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
+from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
 from callbacks.pfsp_callback import MAIN_MODULE, MAX_OPPONENTS
 
 from environments.SW_1v1_env import SW_1v1_env
@@ -66,6 +67,7 @@ parser.add_argument("--grad-clip", type=float, default=100.0)
 parser.add_argument("--gamma", type=float, default=.999) # Reward discount over time
 parser.add_argument("--lambda_", type=float, default=0.8) # Bootstrapping ratio (lower=more bootstrapped)
 # We'll need to load in a checkpoint, and it might be beneficial to cold-start the value function
+parser.add_argument("--restore-checkpoint", type=os.path.abspath)
 parser.add_argument("--opponents-path", type=os.path.abspath) # Folder containing a directory of checkpoints
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
 # Multiple agents?
@@ -164,12 +166,21 @@ config.multi_agent(
 	policy_mapping_fn=atm_fn,
 	policies_to_train=[MAIN_MODULE], # Only the learned policy should be trained.
 )
+
+# Load policy if applicable.
+if (args.restore_checkpoint):
+	print(f"Restoring checkpoint: {args.restore_checkpoint}")
+	callbacks.append(functools.partial(
+		LoadOnAlgoInitCallback,
+		ckpt_path=args.restore_checkpoint,
+		module_name=MAIN_MODULE,
+		dest_module_names=[MAIN_MODULE],
+	))
 		
 # Load opponent policies (main is initialized from scratch)
-from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
+
 print(f"Loading opponents: {args.opponents_path}; {opponents}")
 for o in opponents:
-	dest_modules = []
 	callbacks.append(functools.partial(
 		LoadOnAlgoInitCallback,
 		ckpt_path=os.path.join(args.opponents_path, o),
