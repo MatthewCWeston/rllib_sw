@@ -100,7 +100,7 @@ class BatchedCriticPPOLearner(PPOTorchLearner):
               )
           )
         # Cold start the value function?
-        self.vf_cold_start=self.config.learner_config_dict["vf_cold_start"]
+        self.vf_cold_start=self.config.learner_config_dict.get("vf_cold_start", False)
         self.cold_start_counter=0
     
     @override(TorchLearner)

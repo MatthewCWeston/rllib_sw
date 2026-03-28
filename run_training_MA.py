@@ -65,6 +65,7 @@ parser.add_argument("--lambda_", type=float, default=0.8) # Bootstrapping ratio 
 # We'll need to load in a checkpoint, and it might be beneficial to cold-start the value function
 parser.add_argument("--restore-checkpoint", type=os.path.abspath)
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
+parser.add_argument("--iters-to-warmup-new", type=int, default=-1)
 # Multiple agents?
 parser.add_argument("--add-v0", action="store_true") # Add a v_zero agent, to train against a static opponent
 parser.add_argument("--no-load-main", action="store_true") # When loading, don't restore the learning module.
@@ -184,6 +185,7 @@ if (args.restore_checkpoint):
 		module_name=MAIN_MODULE,
 		dest_module_names=dest_modules, # Restore weights into all active agents
 		vf_cold_start=args.vf_cold_start,
+        iters_to_warmup_new=args.iters_to_warmup_new,
 	))
 
 # Evaluate under a fixed config demonstrating the hardest conditions

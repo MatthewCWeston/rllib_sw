@@ -6,7 +6,7 @@ import sys
 import importlib.util
 import json
 import torch
-import functools
+from functools import partial
 import numpy as np
 from datetime import datetime
 
@@ -69,7 +69,7 @@ parser.add_argument("--lambda_", type=float, default=0.8) # Bootstrapping ratio 
 # We'll need to load in a checkpoint, and it might be beneficial to cold-start the value function
 parser.add_argument("--restore-checkpoint", type=os.path.abspath)
 parser.add_argument("--opponents-path", type=os.path.abspath) # Folder containing a directory of checkpoints
-parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
+parser.add_argument("--iters-to-warmup-new", type=int, default=-1)
 # Multiple agents?
 parser.add_argument("--no-load-main", action="store_true") # When loading, don't restore the learning module.
 parser.add_argument("--identity-aug", action="store_true") # Augment the critic with the opposing agent's identity
@@ -109,7 +109,6 @@ config = (
 		learner_class=BatchedCriticPPOLearner,
 		learner_config_dict={
 			'critic_batch_size': args.critic_batch_size, # Just to avoid OOM; not a hyperparameter
-			'vf_cold_start': args.vf_cold_start, # Pre-train the value function for K minibatches
 		},
 		grad_clip=args.grad_clip if hasattr(args, 'grad_clip') else None,
 		grad_clip_by="global_norm",
@@ -170,18 +169,19 @@ config.multi_agent(
 # Load policy if applicable.
 if (args.restore_checkpoint):
 	print(f"Restoring checkpoint: {args.restore_checkpoint}")
-	callbacks.append(functools.partial(
+	callbacks.append(partial(
 		LoadOnAlgoInitCallback,
 		ckpt_path=args.restore_checkpoint,
 		module_name=MAIN_MODULE,
 		dest_module_names=[MAIN_MODULE],
+        iters_to_warmup_new=args.iters_to_warmup_new,
 	))
 		
 # Load opponent policies (main is initialized from scratch)
 
 print(f"Loading opponents: {args.opponents_path}; {opponents}")
 for o in opponents:
-	callbacks.append(functools.partial(
+	callbacks.append(partial(
 		LoadOnAlgoInitCallback,
 		ckpt_path=os.path.join(args.opponents_path, o),
 		module_name=MAIN_MODULE,
@@ -213,7 +213,7 @@ config.rl_module(
 )
 # Add callbacks
 config.callbacks(callbacks)
-	
+
 #''' Test it out with this train loop
 algo = config.build_algo()
 num_iters = args.stop_iters
@@ -224,7 +224,7 @@ for i in range(num_iters):
 	  mean_return = results[ENV_RUNNER_RESULTS]['agent_episode_returns_mean']
 	  vf_loss = results['learners'][MAIN_MODULE]['vf_loss']
 	  mean_return = [(k, f'{v:.2f}') for k, v in mean_return.items()]
-	  print(f"iter={i+1} VF loss={vf_loss:.2f} R={mean_return}")
+	  print(f"iter={i+1} VF loss={vf_loss:.5f} R={mean_return}")
 '''
 
 # Run the experiment.

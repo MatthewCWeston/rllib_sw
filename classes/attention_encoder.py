@@ -89,6 +89,9 @@ class AttentionEncoder(TorchModel, Encoder):
 					embs[n] = nn.Linear(s.shape[0], self.emb_dim)
 				elif type(s) is Discrete:
 					embs[n] = nn.Embedding(s.n, self.emb_dim)
+					# By default, nn.Embedding has a much wider weight distribution than Linear.
+					# Hopefully this makes it easier to adapt to. Failing this, we freeze the other weights until a stable embedding is learned.
+					nn.init.uniform_(embs[n].weight, a=-.01, b=.01)
 				else:
 					raise Exception("Unsupported observation subspace")
 			self.embs = nn.ModuleDict(embs)
@@ -128,6 +131,7 @@ class AttentionEncoder(TorchModel, Encoder):
 				mask = torch.ones((v.shape[0], 1)).to(
 					v.device
 				) # Fixed elements are always there
+				#print(f"Embedding weights: {self.embs[s].weight.mean()} {self.embs[s].weight.std()}")
 			embedded = self.embs[s](v)
 			embeddings.append(embedded)
 			masks.append(mask)
