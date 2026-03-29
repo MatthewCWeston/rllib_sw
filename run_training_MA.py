@@ -207,6 +207,7 @@ elif (args.pfsp):
 					  clone_every=args.steps_to_clone,
 					  league_initial=modules,
 					  id_aug=args.identity_aug,
+                      warmup=max(0, args.iters_to_warmup_new),
 					  ))
 
 if (args.identity_aug): # Add a unique identity value to the critic's observations.

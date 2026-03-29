@@ -214,7 +214,7 @@ config.rl_module(
 # Add callbacks
 config.callbacks(callbacks)
 
-#''' Test it out with this train loop
+''' Test it out with this train loop
 algo = config.build_algo()
 num_iters = args.stop_iters
 
