@@ -3,7 +3,7 @@ from environments.SpaceWar_constants import *
 from environments.SpaceWar_constants import WRAP_BOUND
 
 def wrap(p):
-    ''' Wraps a point within a square of size 2 centered on [0,0]'''
+    ''' Wraps a point within a square centered on [0,0]'''
     for i in range(2):
         if (p[i]>WRAP_BOUND):
             p[i] -= 2*WRAP_BOUND

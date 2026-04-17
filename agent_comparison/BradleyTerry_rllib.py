@@ -179,10 +179,8 @@ if __name__ == '__main__':
 		.env_runners(
 			num_cpus_per_env_runner=1,
 			num_envs_per_env_runner=args.envs_per_env_runner,
+            num_env_runners=args.num_env_runners,
 		)
-		.env_runners(
-		num_env_runners=args.num_env_runners,
-	)
 	)
 	# Handle envs in MA format
 	env = target_env(args.env_config) # sample

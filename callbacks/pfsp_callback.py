@@ -209,10 +209,12 @@ class PFSPCallback(RLlibCallback):
             algorithm.metrics.log_value(("BradleyTerry", k), v)
         bt_dict = algorithm.metrics.peek("BradleyTerry")
         print_elo_table(bt_dict)
-        # Clone the agent if it's doing better than its previous best
-        if ((iter)%(self.clone_every+self.warmup)==0) and (bt_dict[MAIN_MODULE] > self.prev_best) and (len(self.league) < MAX_OPPONENTS):
-            self.clone_agent(algorithm, MAIN_MODULE)
-            self.prev_best = bt_dict[MAIN_MODULE]
-            self.warmup = 0
+        # Clone the agent if it's doing better than when it was last cloned or if it's beating the rest of the league
+        if ((iter)%(self.clone_every+self.warmup)==0) and (len(self.league) < MAX_OPPONENTS):
+            threshold = min(self.prev_best, max(bt_dict.values()))
+            if (bt_dict[MAIN_MODULE] >= threshold):
+                self.clone_agent(algorithm, MAIN_MODULE)
+                self.prev_best = bt_dict[MAIN_MODULE]
+                self.warmup = 0
         # Update mapping function, reweighting and adding new module if needed
         self.update_atm_fn(algorithm, dict(wrs))

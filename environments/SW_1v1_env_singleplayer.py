@@ -128,11 +128,12 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
     def new_target_position(self):
         target = self.playerShips[1]
         if (self.target_speed == 0):
-            position = np.random.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
+            position = self.rng.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
         else:
-            position = np.random.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
-            r = np.random.uniform(0, 1)**.5 * WRAP_BOUND
-            p_ang = np.random.uniform(0, 2*np.pi)
+            position = self.rng.uniform(-WRAP_BOUND,WRAP_BOUND, (2,))
+            r_min = PLAYER_SIZE * 2 + STAR_SIZE
+            r = max(r_min, self.rng.uniform(0, 1)**.5 * WRAP_BOUND)
+            p_ang = self.rng.uniform(0, 2*np.pi)
             position = np.array([np.cos(p_ang), np.sin(p_ang)]) * r
             dist_zero = (position**2).sum()**.5
             # Spawn it somewhere the player isn't
@@ -148,31 +149,35 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 if (pos_r > WRAP_BOUND):
                     position = position * -(2*WRAP_BOUND-pos_r) / pos_r
             # Set velocity (perpendicular to angle to star)
-            g = GRAV_CONST #/ (position[0]**2 + position[1]**2)
+            g = GRAV_CONST
             if (not self.elliptical):
                 v_magnitude = (g/r)**.5 # For a circular orbit (v^2 = GM/r; g=GM)
             else: #   eccentricity = (r_a - r_p) / (r_a + r_p); r_a = r
-                r_p = np.random.uniform(low=max(PLAYER_SIZE*2+STAR_SIZE, r/2), high=r)
+                r_p = self.rng.uniform(low=max(r_min, r / 2), high=r)
                 ecc = (r - r_p) / (r + r_p)
                 # velocity at apocentre is sqrt((1-e) * GM / ((1+e) * r_a))
                 v_magnitude = ((1-ecc) * g / ((1+ecc)*r))**.5
             v_magnitude *= self.target_speed
-            v_angle = np.arctan2(position[1],position[0]) + np.pi/2 * np.sign(np.random.rand()-0.5)
+            v_angle = np.arctan2(position[1],position[0]) + np.pi/2 * np.sign(self.rng.random() - 0.5)
             target.vel = np.array([np.cos(v_angle), np.sin(v_angle)]) * v_magnitude
         target.pos = position
         if (self.target_ammo != 0):
             target.stored_missiles = int(NUM_MISSILES * self.target_ammo)
-            target.ang = np.random.uniform(0,360) # Random initial angle
+            target.ang =  self.rng.uniform(0,360) # Random initial angle
             target.updateAngUV()
         else:
             target.stored_missiles = 0
     
     def reset(self, seed=None, options={}):
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
+        elif not hasattr(self, 'rng'):
+            self.rng = np.random.default_rng()
         if (self.probabilistic == True):
-            self.grav_multiplier = np.clip(self.true_grav_multiplier + np.random.normal(0,0.1), 0, 1) # [0,1], sd of 0.1
-            self.size_multiplier = np.clip(self.true_size_multiplier + np.random.normal(0,1), 1, 10)  # [1,10], sd of 1
-            self.target_speed = np.clip(self.true_target_speed + np.random.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
-            self.target_ammo = np.clip(self.true_target_ammo + np.random.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
+            self.grav_multiplier = np.clip(self.true_grav_multiplier + self.rng.normal(0,0.1), 0, 1) # [0,1], sd of 0.1
+            self.size_multiplier = np.clip(self.true_size_multiplier + self.rng.normal(0,1), 1, 10)  # [1,10], sd of 1
+            self.target_speed = np.clip(self.true_target_speed + self.rng.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
+            self.target_ammo = np.clip(self.true_target_ammo + self.rng.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
         self.playerShips = [
             Ship(np.array([-.5, .5]), 90.),
             Dummy_Ship(np.array([0.,0.]),0.,PLAYER_SIZE*self.size_multiplier)

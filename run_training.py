@@ -12,7 +12,6 @@ from ray.rllib.models import ModelCatalog
 
 from ray.rllib.algorithms.ppo.ppo import PPOConfig
 from ray.rllib.algorithms.ppo.torch.default_ppo_torch_rl_module import DefaultPPOTorchRLModule
-from ray.rllib.connectors.env_to_module.flatten_observations import FlattenObservations
 from ray.rllib.core import DEFAULT_MODULE_ID
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
@@ -200,6 +199,7 @@ if (not args.no_custom_arch):
         )
     }
 else:
+    from ray.rllib.connectors.env_to_module.flatten_observations import FlattenObservations
     print('Using default architecture')
     specs = {
         module_id: RLModuleSpec(
@@ -301,25 +301,25 @@ stop = {
     EPISODE_RETURN_MEAN_KEY: args.stop_reward,
 }
     
-''' 
-algo = config.build_algo()
-
+#''' 
+import time
 from ray.rllib.utils.metrics import (
     ENV_RUNNER_RESULTS,
     EPISODE_RETURN_MEAN,
     EVALUATION_RESULTS,
 )
-import numpy as np
+algo = config.build_algo()
 
 num_iters = args.stop_iters
 
+t_start_training = time.time()
 for i in range(num_iters):
   results = algo.train()
   if ENV_RUNNER_RESULTS in results:
       mean_return = results[ENV_RUNNER_RESULTS].get(
           EPISODE_RETURN_MEAN, np.nan
       )
-      print(f"iter={i} R={mean_return}") 
+      print(f"iter={i} R={mean_return} time={time.time()-t_start_training:.1f}s") 
 '''
 
 # Run the experiment.
