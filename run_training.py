@@ -79,6 +79,7 @@ parser.add_argument("--attn-dim", type=int, default=128) # Encoder dimensionalit
 parser.add_argument("--attn-ff-dim", type=int, default=2048) # Feedforward component of attention layers
 parser.add_argument("--attn-layers", type=int, default=1) # Times to recursively run our attention layer
 parser.add_argument("--full-transformer", action='store_true') # Use full Transformer layers from PyTorch
+parser.add_argument("--gated-transformer", action='store_true') # Use gated attention
 parser.add_argument("--attn-recursive", action='store_true')
 parser.add_argument("--dropout", type=float, default=0.1) # In theory, this shouldn't help. In practice, it helps.
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
@@ -186,6 +187,7 @@ if (not args.no_custom_arch):
             model_config={
                 "attention_emb_dim": args.attn_dim,
                 "full_transformer": args.full_transformer,
+                "gated_transformer": args.gated_transformer,
                 "attn_layers": args.attn_layers,
                 "attn_ff_dim": args.attn_ff_dim,
                 "recursive": args.attn_recursive,
@@ -301,7 +303,7 @@ stop = {
     EPISODE_RETURN_MEAN_KEY: args.stop_reward,
 }
     
-#''' 
+''' 
 import time
 from ray.rllib.utils.metrics import (
     ENV_RUNNER_RESULTS,

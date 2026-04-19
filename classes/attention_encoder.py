@@ -48,6 +48,29 @@ class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
         x_ff = self.residual(x)
         x = self.norm_ff(x_ff + x)
         return x
+        
+class GatedTransformerLayer(SimpleTransformerLayer): # A simplified transformer layer
+    '''
+        Gated transformer layers that act as identify functions by default, learning to do otherwise only when it would be useful.
+    '''
+    def __init__(self, emb_dim, heads, h_dim=2048, dropout=0.1):
+        super().__init__(emb_dim, heads, h_dim, dropout)
+        self.gate_attn = nn.Linear(2 * emb_dim, emb_dim)
+        self.gate_ff = nn.Linear(2 * emb_dim, emb_dim)
+        nn.init.xavier_uniform_(self.gate_attn.weight)
+        nn.init.xavier_uniform_(self.gate_ff.weight)
+        nn.init.constant_(self.gate_attn.bias, -2.0) # Start with identity function, since we add sigmoid of output
+        nn.init.constant_(self.gate_ff.bias, -2.0)
+    def forward(self, x, src_key_padding_mask):
+        y = self.norm_attn(x)
+        y, _ = self.mha(y, y, y, key_padding_mask=src_key_padding_mask, need_weights=False)
+        g = torch.sigmoid(self.gate_attn(torch.cat([x, y], dim=-1)))
+        x = g * y + (1 - g) * x # Our gate. Learn to keep only useful outputs from attention layer.
+        y = self.norm_ff(x)
+        y = self.residual(y)
+        g = torch.sigmoid(self.gate_ff(torch.cat([x, y], dim=-1)))
+        x = g * y + (1 - g) * x
+        return x
 
 class AttentionEncoder(TorchModel, Encoder):
     """
@@ -71,6 +94,10 @@ class AttentionEncoder(TorchModel, Encoder):
                 if (config.full_transformer):
                     mhas.append(nn.TransformerEncoderLayer(d_model=self.emb_dim, 
                         dim_feedforward=config.attn_ff_dim, nhead=4, batch_first=True))
+                elif (config.gated_transformer):
+                    print("Using gated transformer")
+                    mhas.append(GatedTransformerLayer(self.emb_dim, 4,
+                        h_dim=config.attn_ff_dim, dropout=config.dropout))
                 else:
                     mhas.append(SimpleTransformerLayer(self.emb_dim, 4,
                         h_dim=config.attn_ff_dim, dropout=config.dropout))
@@ -152,9 +179,10 @@ class AttentionEncoderConfig(ModelConfig):
         self.observation_space = observation_space
         self.emb_dim = kwargs["model_config_dict"]["attention_emb_dim"]
         self.attn_ff_dim = kwargs["model_config_dict"]["attn_ff_dim"]
-        self.full_transformer = kwargs["model_config_dict"]["full_transformer"]
+        self.full_transformer = kwargs["model_config_dict"].get("full_transformer", False)
+        self.gated_transformer = kwargs["model_config_dict"].get("gated_transformer", False)
         self.attn_layers = kwargs["model_config_dict"]["attn_layers"]
-        self.recursive = kwargs["model_config_dict"]["recursive"]
+        self.recursive = kwargs["model_config_dict"].get("recursive", False)
         self.dropout = kwargs["model_config_dict"].get("dropout", 0.1)
         self.output_dims = (self.emb_dim,)
 
