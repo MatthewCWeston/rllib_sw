@@ -92,26 +92,54 @@ class Missile():
             draw.line([m[0],m[1], m[0]+v[0],m[1]+v[1]], width=1, fill='cyan')
 
 class Ship():
-    REPR_SIZE = 8
-    ALL_AUG_DIM = 4
+    REPR_SIZE = 11
+    ALL_AUG_DIM = 5
     OTHER_AUG_DIM = ALL_AUG_DIM + 6
-    def __init__(self, pos, ang, size=PLAYER_SIZE, vel=None):
+    def __init__(self, pos, ang, size=PLAYER_SIZE, vel=None, stochastic_hspace=False):
         self.pos = pos
         self.ang = ang
         self.stored_missiles = NUM_MISSILES
+        self.fuel = SHIP_FUEL
         self.vel = vel if vel is not None else np.array([0.,0.])
         self.reloadTime = 0
         self.last_act = [0,0,0]
         self.size = size
         self.updateAngUV()
+        # Hyperspace
+        self.h_charges = HYPERSPACE_CHARGES
+        self.h_reload = 0
+        self.stochastic_hspace = stochastic_hspace
     def updateAngUV(self):
         a = self.ang*np.pi/180
         self.angUV = np.array([np.cos(a), -np.sin(a)])
-    def update(self, action, missiles, speed, grav_multiplier=1.):
+    def update(self, action, missiles, speed, grav_multiplier=1., rng=None):
+        if (self.h_reload > 0):
+            self.h_reload = max(self.h_reload - speed, 0)
+            if (self.h_reload <= HYPERSPACE_RECHARGE - HYPERSPACE_REENTRY):
+                if (self.h_reload + speed > HYPERSPACE_RECHARGE - HYPERSPACE_REENTRY):
+                    if (self.stochastic_hspace==False):
+                        # Deterministic hyperspace implementation
+                        self.vel *= -1
+                        self.pos *= -1
+                        self.ang += 180
+                    else:
+                        if (rng.uniform() < S_HSPACE_FAIL_CHANCE): # Chance of catastrophic failure
+                            self.pos = np.array([0,0])
+                            self.vel = np.array([0,0])
+                            return
+                        else:
+                            self.pos = rng.uniform(0, WRAP_BOUND, size=(2,))
+                            vel_ang = rng.uniform(0,2*np.pi)
+                            self.vel = rng.uniform(0, S_HSPACE_MAXSPEED) * np.array([np.cos(vel_ang), -np.sin(vel_ang)])
+                            self.ang = rng.uniform(0,360)
+                    self.updateAngUV()
+            else:
+                return
         self.last_act = action # for rendering
         # Take actions 
-        if (action[0]==1):
+        if (action[0]==1 and self.fuel > 0):
           self.vel += SHIP_ACC * self.angUV * speed
+          self.fuel = max(self.fuel-speed, 0)
         if (action[1]==1):
           self.ang += SHIP_TURN_RATE * speed
           self.updateAngUV()
@@ -127,6 +155,10 @@ class Ship():
             self.reloadTime = MISSILE_RELOAD_TIME
         else:
             self.reloadTime =  max(self.reloadTime-speed,0)
+        # Hyperspace
+        if (len(action) == 4 and self.h_charges > 0 and self.h_reload == 0 and action[3]==1):
+            self.h_reload = HYPERSPACE_RECHARGE
+            self.h_charges -= 1
         # Update position
         self.pos += self.vel * speed
         self.vel = np.clip(self.vel, -1.0, 1.0)
@@ -159,15 +191,16 @@ class Ship():
                 auv = rotate_pt(self.angUV, -ang_to_observer) # Gets the 'bearing' of the observer in the eyes of this ship
             v = rotate_pt(self.vel, -ego.ang) # Rotate velocity w/r to removing ego's angle
             obs = np.concatenate([p, v, auv, 
-                [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME]
+                [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME, self.fuel / SHIP_FUEL, self.h_charges / HYPERSPACE_CHARGES, self.h_reload / HYPERSPACE_RECHARGE]
             ])
             if (aug):
                 star_dist = np.linalg.norm(self.pos) # Wrap bound permits a maximum of 1 distance from star
-                star_anguv = -self.pos/star_dist # Angular unit vector of the direction to the star
+                star_anguv = -self.pos/max(star_dist,1e-6) # Angular unit vector of the direction to the star
                 rad_vel = np.dot(star_anguv, self.vel) # Velocity component perpendicular to orbit
                 tan_vel = np.dot(np.array([star_anguv[1],-star_anguv[0]]), self.vel) # Velocity component of orbit
                 speed = np.linalg.norm(self.vel) # Speed
-                aug_vec = [rad_vel, tan_vel, speed, star_dist]
+                in_hspace = 1 if (self.h_reload > HYPERSPACE_RECHARGE - HYPERSPACE_REENTRY) else 0 # Currently in hyperspace
+                aug_vec = [rad_vel, tan_vel, speed, star_dist, in_hspace]
                 if (ego != self):
                     # Include X,Y distance to star, rotated WRT ego
                     star_coords = rotate_pt(-self.pos, -ego.ang)
@@ -212,21 +245,24 @@ class Ship():
                     prev = c
                 # Ship should be drawn in the center 
                 pos = np.array([0,0])
-        
         p = (pos+1) * hdim
-        ppts = np.array([[psz/2, 0], [-psz*3/8, -psz/4], [-psz/2,0], [-psz*3/8, psz/4]])
-        a = ang*np.pi/180
-        rm = np.array([[np.cos(a), -np.sin(a)],[np.sin(a), np.cos(a)]])
-        ppts = [(x[0], x[1]) for x in np.dot(ppts, rm) + p]
-        draw.ellipse((p[0]-psz/2, p[1]-psz/2, p[0]+psz/2, p[1]+psz/2), outline='gray' if not terminated else 'lime' if reward>0 else 'red' if reward < 0 else 'yellow')
-        draw.polygon(ppts, fill='white')
-        # Draw the thruster flare
-        if (self.last_act[0]==1):
-            ppts = np.array([[-psz*3/4, 0], [-psz*3/8, -psz/4], [-psz/2,0], [-psz*3/8, psz/4]])
+        if (self.h_reload > HYPERSPACE_RECHARGE - HYPERSPACE_REENTRY): # Player is in hyperspace
+            for i in range(1, 3):
+                draw.ellipse((p[0]-psz/i, p[1]-psz/i, p[0]+psz/i, p[1]+psz/i), outline='purple')
+        else: # Draw player as usual
+            ppts = np.array([[psz/2, 0], [-psz*3/8, -psz/4], [-psz/2,0], [-psz*3/8, psz/4]])
             a = ang*np.pi/180
             rm = np.array([[np.cos(a), -np.sin(a)],[np.sin(a), np.cos(a)]])
             ppts = [(x[0], x[1]) for x in np.dot(ppts, rm) + p]
-            draw.polygon(ppts, fill='orange')
+            draw.ellipse((p[0]-psz/2, p[1]-psz/2, p[0]+psz/2, p[1]+psz/2), outline='gray' if not terminated else 'lime' if reward>0 else 'red' if reward < 0 else 'yellow')
+            draw.polygon(ppts, fill='white')
+            # Draw the thruster flare
+            if (self.last_act[0]==1 and self.fuel > 0):
+                ppts = np.array([[-psz*(3+3 * np.random.uniform(0,1))/8, 0], [-psz*3/8, -psz/4], [-psz/2,0], [-psz*3/8, psz/4]])
+                a = ang*np.pi/180
+                rm = np.array([[np.cos(a), -np.sin(a)],[np.sin(a), np.cos(a)]])
+                ppts = [(x[0], x[1]) for x in np.dot(ppts, rm) + p]
+                draw.polygon(ppts, fill='orange')
         # Draw the player's ammo counter
         bar_len = psz * 2
         x_offset = p[0] - bar_len / 2
@@ -235,7 +271,19 @@ class Ship():
         draw.line([(x, y), (x+bar_len, y)], width=1, fill='gray')
         draw.line([(x, y), (x+bar_len*self.stored_missiles/NUM_MISSILES, y)], width=1, fill='white')
         y+=2
+        draw.line([(x, y), (x+bar_len, y)], width=1, fill='gray')
         draw.line([(x, y), (x+bar_len*max(0,self.reloadTime)/MISSILE_RELOAD_TIME, y)], width=1, fill='yellow')
+        # Draw the fuel meter
+        y += 4
+        draw.line([(x, y), (x+bar_len, y)], width=1, fill='gray')
+        draw.line([(x, y), (x+bar_len*self.fuel/SHIP_FUEL, y)], width=1, fill='red')
+        # Draw the hyperspace meters
+        y += 4
+        draw.line([(x, y), (x+bar_len, y)], width=1, fill='gray')
+        draw.line([(x, y), (x+bar_len*self.h_charges/HYPERSPACE_CHARGES, y)], width=1, fill='purple')
+        y+=2
+        draw.line([(x, y), (x+bar_len, y)], width=1, fill='gray')
+        draw.line([(x, y), (x+bar_len*max(0,self.h_reload)/HYPERSPACE_RECHARGE, y)], width=1, fill='pink')
         if (ego is not None):
             # Draw an orange line indicating angle unit vector 
             if (ego is not self):

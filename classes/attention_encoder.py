@@ -18,7 +18,7 @@ import torch.nn.functional as F
 
 CRITIC_ONLY = "CRITIC_ONLY" # Environment dynamics that the actor encoder should discard
 
-class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
+class SimpleTransformerLayer(nn.Module): # A simple transformer layer implementation
     '''
         https://github.com/pytorch/pytorch/blob/v2.8.0/torch/nn/modules/transformer.py#L933
         Official implementation also uses self-attn, but includes a (default) 2048 dimension hidden layer (with ReLU activation), layer normalization, and some dropout layers.
@@ -35,7 +35,7 @@ class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
         self.mha = nn.MultiheadAttention(emb_dim, heads, dropout=dropout, batch_first=True)
         self.norm_attn = torch.nn.LayerNorm(emb_dim)
         self.norm_ff = torch.nn.LayerNorm(emb_dim)
-        self.residual = nn.Sequential(
+        self.ff = nn.Sequential(
             nn.Linear(emb_dim, h_dim),
             nn.GELU(), # Apparently just plain better than ReLU here.
             nn.Dropout(dropout),
@@ -45,7 +45,7 @@ class SimpleTransformerLayer(nn.Module): # A simplified transformer layer
     def forward(self, x, src_key_padding_mask):
         x_attn, _ = self.mha(x, x, x, key_padding_mask=src_key_padding_mask, need_weights=False)
         x = self.norm_attn(x_attn + x)
-        x_ff = self.residual(x)
+        x_ff = self.ff(x)
         x = self.norm_ff(x_ff + x)
         return x
         
@@ -67,7 +67,7 @@ class GatedTransformerLayer(SimpleTransformerLayer): # A simplified transformer 
         g = torch.sigmoid(self.gate_attn(torch.cat([x, y], dim=-1)))
         x = g * y + (1 - g) * x # Our gate. Learn to keep only useful outputs from attention layer.
         y = self.norm_ff(x)
-        y = self.residual(y)
+        y = self.ff(y)
         g = torch.sigmoid(self.gate_ff(torch.cat([x, y], dim=-1)))
         x = g * y + (1 - g) * x
         return x

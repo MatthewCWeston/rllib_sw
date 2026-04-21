@@ -74,7 +74,8 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.maxTime = env_config.get('ep_length', DEFAULT_MAX_TIME)
         # Later on, could replace speed's multiplier with a for loop for better fidelity/robustness.
         # (Sample actions every K steps, shoot once, every other command gets repeated)
-        self.speed = env_config.get('speed', 1.0)
+        self.repeats = int(env_config.get('speed', 1))
+        self.speed = 1
         self.size = env_config.get('render_size', DEFAULT_RENDER_SIZE)
         # Gravity multiplier for curriculum learning
         self.grav_multiplier = self.true_grav_multiplier = env_config.get('grav_multiplier', 1.0)
@@ -86,7 +87,11 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.target_ammo = self.true_target_ammo = env_config.get('target_ammo', 0.0)
         # Randomize the curriculum?
         self.probabilistic = env_config.get('probabilistic_difficulty', False)
-        self.inform_critic = env_config.get('inform_critic', False) # Share environment dynamics with the critic
+        self.inform_critic = env_config.get('inform_critic', False)   # Share environment dynamics with the critic
+        self.randomize_ammo = env_config.get('randomize_ammo', False) # Randomize the stored missile count on reset?
+        self.no_respawn = env_config.get('no_respawn', False)         # Don't respawn target, just end episode.
+        # Traditional (stochastic) hyperspace behavior
+        self.stochastic_hspace = env_config.get('stochastic_hspace', False)
         # Rendering
         self.metadata['render_modes'].append('rgb_array')
         self.render_mode = 'rgb_array'
@@ -104,7 +109,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         if (self.inform_critic):
             obs_space[ENV_DYNAMICS] = Box(0,1,shape=(4,)) # gm, sm/10, ts, ta
         self.observation_spaces = {i: Dict(obs_space) for i in range(1)}
-        self.action_spaces = {i: MultiDiscrete([2,3,2]) for i in range(1)}
+        self.action_spaces = {i: MultiDiscrete([2,3,2,2]) for i in range(1)} # Thrust, turn, shoot, hyperspace
         
     def get_obs(self):
         ego = self.playerShips[0] if self.egocentric else None
@@ -122,6 +127,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         return {0: {pygame.K_UP: (0,1,False), # Action, Value, hold_disallowed (qol)
                 pygame.K_LEFT: (1,1,False), pygame.K_RIGHT: (1,2,False),
                 pygame.K_DOWN: (2,1,False),
+                pygame.K_SPACE: (3,1,False),
                 "default": 0},
                 }
                 
@@ -179,9 +185,12 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             self.target_speed = np.clip(self.true_target_speed + self.rng.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
             self.target_ammo = np.clip(self.true_target_ammo + self.rng.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
         self.playerShips = [
-            Ship(np.array([-.5, .5]), 90.),
+            Ship(np.array([-.5, .5]), 90., stochastic_hspace=self.stochastic_hspace),
             Dummy_Ship(np.array([0.,0.]),0.,PLAYER_SIZE*self.size_multiplier)
         ]
+        if (self.randomize_ammo):
+            self.playerShips[0].stored_missiles = np.ceil(NUM_MISSILES * self.rng.uniform(0.05,1))
+            self.playerShips[0].h_charges = np.ceil(HYPERSPACE_CHARGES * self.rng.uniform(0.05,1))
         self.new_target_position()
         self.missiles = [] # x, y, vx, vy
         self.opponent_missiles = []
@@ -189,12 +198,12 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         self.terminated = False # for rendering purposes
         return self.get_obs(), {}
         
-    def step(self, actions):
+    def update(self, actions):
         self.rewards = {0:0}
         self.time += 1 * self.speed
         # Thrust is acc times anguv
         ship = self.playerShips[0]
-        ship.update(actions[0], self.missiles, self.speed, grav_multiplier=self.grav_multiplier)
+        ship.update(actions[0], self.missiles, self.speed, grav_multiplier=self.grav_multiplier, rng=self.rng)
         if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE + STAR_SIZE):
             self.terminated = True;
             self.rewards[0] = -1
@@ -218,8 +227,17 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                         self.rewards[0] = -1
                     else:
                         self.rewards[0] = 1
-                        self.new_target_position()
-        truncated = (self.time >= self.maxTime)
+                        if (self.no_respawn==False):
+                            self.new_target_position() # If it crashes, respawn it
+                        else:
+                            self.terminated = True
+
+    def step(self, actions):
+        for _ in range(self.repeats):
+            self.update(actions)
+            truncated = (self.time >= self.maxTime)
+            if (self.terminated or truncated):
+                break
         return self.get_obs(), self.rewards, {"__all__": self.terminated}, {"__all__": truncated}, {}
         
     def render(self): # Display the environment state

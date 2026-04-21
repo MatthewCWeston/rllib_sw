@@ -80,7 +80,7 @@ class SW_1v1_env(MultiAgentEnv):
 		pos_2 = -position # Opposite side of the star
 		vel_2 = -vel_1
 		facing_2 = facing_1 + 180
-		ammo = int(NUM_MISSILES * np.random.uniform(0.25,1))
+		ammo = int(NUM_MISSILES * np.random.uniform(0.05,1))
 		self.playerShips = [
 			Ship(pos_1, facing_1, vel=vel_1),
 			Ship(pos_2, facing_2, vel=vel_2)
@@ -89,7 +89,6 @@ class SW_1v1_env(MultiAgentEnv):
 			p.stored_missiles = ammo
 	
 	def reset(self, seed=0, options={}):
-		
 		self.missiles = [[],[]] # x, y, vx, vy
 		self.time = 0
 		self.terminated = False # for rendering purposes
