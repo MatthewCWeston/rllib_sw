@@ -185,7 +185,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             self.target_speed = np.clip(self.true_target_speed + self.rng.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
             self.target_ammo = np.clip(self.true_target_ammo + self.rng.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
         self.playerShips = [
-            Ship(np.array([-.5, .5]), 90., stochastic_hspace=self.stochastic_hspace),
+            Ship(np.array([-.5, -.5]) * WRAP_BOUND, 90., stochastic_hspace=self.stochastic_hspace),
             Dummy_Ship(np.array([0.,0.]),0.,PLAYER_SIZE*self.size_multiplier)
         ]
         if (self.randomize_ammo):
@@ -205,7 +205,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         # Thrust is acc times anguv
         ship = self.playerShips[0]
         ship.update(actions[0], self.missiles, self.speed, grav_multiplier=self.grav_multiplier, rng=self.rng)
-        if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE + STAR_SIZE):
+        if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE):
             self.terminated = True;
             self.rewards[0] = -1
         # Update the dummy ship
@@ -213,7 +213,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         if ((self.target_speed != 0) or (target.stored_missiles != 0)):
             target.update(self.opponent_missiles, self.speed, 
                 grav_multiplier=self.grav_multiplier*self.target_speed, target_loc=ship.pos)
-            if (np.linalg.norm(target.pos, 2) < PLAYER_SIZE + STAR_SIZE):
+            if (np.linalg.norm(target.pos, 2) < PLAYER_SIZE):
                 self.new_target_position() # If it crashes, respawn it
         # Update missiles
         ms = [self.missiles, self.opponent_missiles]

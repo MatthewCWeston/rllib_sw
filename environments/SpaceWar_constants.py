@@ -10,15 +10,15 @@ MISSILE_RELOAD_TIME = 16
 
 SHIP_FUEL = 1024 # How many timesteps can the ship thrust for?
 
-SHIP_TURN_RATE = 1/16 * 180/np.pi   # About 3.6 degrees
+SHIP_TURN_RATE = 1/16 * 180/np.pi       # About 3.6 degrees
 SHIP_ACC = 1/131072 * WRAP_BOUND * 2    # About 5E-6
-GRAV_CONST = 9.5E-7 * .5**.5 * 2              # PENDING
+GRAV_CONST = 9.5E-7 * .5**.5 * 2        # About 1.3E-6
 
 DEFAULT_MAX_TIME = 4096
 
 DEFAULT_RENDER_SIZE = 750
-PLAYER_SIZE = .02 * WRAP_BOUND * 2 # Player size
-STAR_SIZE = .01 * WRAP_BOUND * 2 # Star size
+PLAYER_SIZE = .02 # Player size
+STAR_SIZE = .01 # Star size
 
 HYPERSPACE_CHARGES = 8 # How many times can the ship enter hyperspace?
 HYPERSPACE_RECHARGE = 224 # Time for hyperspace to recharge after activation (12 seconds)

@@ -247,8 +247,14 @@ class Ship():
                 pos = np.array([0,0])
         p = (pos+1) * hdim
         if (self.h_reload > HYPERSPACE_RECHARGE - HYPERSPACE_REENTRY): # Player is in hyperspace
-            for i in range(1, 3):
-                draw.ellipse((p[0]-psz/i, p[1]-psz/i, p[0]+psz/i, p[1]+psz/i), outline='purple')
+            perc = ((HYPERSPACE_REENTRY - (HYPERSPACE_RECHARGE - self.h_reload))%(HYPERSPACE_REENTRY/3)) / (HYPERSPACE_REENTRY/3)
+            draw.ellipse((p[0]-psz*perc, p[1]-psz*perc, p[0]+psz*perc, p[1]+psz*perc), outline=(150,0,150,int((1-perc)*255)))
+            if (perc < 0.5 and (HYPERSPACE_RECHARGE - self.h_reload) <= HYPERSPACE_REENTRY*2/3):
+                perc += 0.5
+                draw.ellipse((p[0]-psz*perc, p[1]-psz*perc, p[0]+psz*perc, p[1]+psz*perc), outline=(150,0,150,int((1-perc)*255)))
+            elif (perc > 0.5 and (HYPERSPACE_RECHARGE - self.h_reload) > HYPERSPACE_REENTRY/3):
+                perc -= 0.5
+                draw.ellipse((p[0]-psz*perc, p[1]-psz*perc, p[0]+psz*perc, p[1]+psz*perc), outline=(150,0,150,int((1-perc)*255)))
         else: # Draw player as usual
             ppts = np.array([[psz/2, 0], [-psz*3/8, -psz/4], [-psz/2,0], [-psz*3/8, psz/4]])
             a = ang*np.pi/180
