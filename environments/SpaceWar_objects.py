@@ -123,7 +123,7 @@ class Ship():
                         self.pos *= -1
                         self.ang += 180
                     else:
-                        if (rng.uniform() < S_HSPACE_FAIL_CHANCE): # Chance of catastrophic failure
+                        if (rng.uniform() > self.h_charges / HYPERSPACE_CHARGES): # Chance of catastrophic failure
                             self.pos = np.array([0,0])
                             self.vel = np.array([0,0])
                             return
@@ -258,7 +258,7 @@ class Ship():
             draw.polygon(ppts, fill='white')
             # Draw the thruster flare
             if (self.last_act[0]==1 and self.fuel > 0):
-                ppts = np.array([[-psz*(3+3 * np.random.uniform(0,1))/8, 0], [-psz*3/8, -psz/4], [-psz/2,0], [-psz*3/8, psz/4]])
+                ppts = np.array([[-psz*(3+5 * np.random.uniform(0,1))/8, 0], [-psz*15/32, -psz/16], [-psz/2,0], [-psz*15/32, psz/16]])
                 a = ang*np.pi/180
                 rm = np.array([[np.cos(a), -np.sin(a)],[np.sin(a), np.cos(a)]])
                 ppts = [(x[0], x[1]) for x in np.dot(ppts, rm) + p]

@@ -191,6 +191,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         if (self.randomize_ammo):
             self.playerShips[0].stored_missiles = np.ceil(NUM_MISSILES * self.rng.uniform(0.05,1))
             self.playerShips[0].h_charges = np.ceil(HYPERSPACE_CHARGES * self.rng.uniform(0.05,1))
+            self.playerShips[0].fuel = np.ceil(SHIP_FUEL * self.rng.uniform(0.25,1))
         self.new_target_position()
         self.missiles = [] # x, y, vx, vy
         self.opponent_missiles = []
