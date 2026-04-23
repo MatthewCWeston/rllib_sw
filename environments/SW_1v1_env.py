@@ -118,7 +118,6 @@ class SW_1v1_env(MultiAgentEnv):
         return self.get_obs(), {}
         
     def update(self, actions):
-        self.rewards = {0:0,1:0}
         self.time += 1 * self.speed
         self.last_acts = actions # for rendering
         # Thrust is acc times anguv
@@ -140,6 +139,7 @@ class SW_1v1_env(MultiAgentEnv):
                     self.rewards[(si+1)%2] = 1
 
     def step(self, actions):
+        self.rewards = {0:0,1:0}
         for _ in range(self.repeats):
             self.update(actions)
             # Early stop when both participants run out of ammo, but only when we're already messing with env initialization for training purposes

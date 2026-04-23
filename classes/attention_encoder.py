@@ -31,7 +31,7 @@ class SimpleTransformerLayer(nn.Module): # A simple transformer layer implementa
         2. x = Layernorm_1(x)
         3. x = x + ff_module(x)
         4. x = Layernorm_2(x)
-        
+
         Layernorm subtracts mean and divides by standard deviation. The dropout layers are vital to regularization, at least for emb_dim=128, and the network falls apart without them.
     '''
     def __init__(self, emb_dim, heads, h_dim=2048, dropout=0.1):
@@ -53,7 +53,7 @@ class SimpleTransformerLayer(nn.Module): # A simple transformer layer implementa
         x_ff = self.ff(x)
         x = self.norm_ff(x_ff + x)
         return x
-        
+
 class GatedTransformerLayer(SimpleTransformerLayer): # A simplified transformer layer
     '''
         Gated transformer layers that act as identify functions by default, learning to do otherwise only when it would be useful.
@@ -176,13 +176,13 @@ class AttentionEncoder(TorchModel, Encoder):
             layer = self.mha[0] if self.recursive else self.mha[i]
             x = layer(x, src_key_padding_mask=(1-mask))
         # Masked pooling.
-        if (self.pool_operation in [MEAN_POOL, MAX_POOL]:
+        if (self.pool_operation in [MEAN_POOL, MAX_POOL]):
             mask = mask.unsqueeze(dim=2)
             x = x * mask  # Mask x to exclude nonexistent entries from mean pool op
             if (self.pool_operation == MEAN_POOL):
                 x = x.mean(dim=1) * mask.shape[1] / mask.sum(dim=1)  # Adjust mean
             else:
-                x = x.max(dim=1)
+                x = x.max(dim=1).values
         elif (self.pool_operation == CLS_TOKEN): # Use representation of self as a CLS token
             assert len(cls_indices)==1
             x = x[:, cls_indices[0]]

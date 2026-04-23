@@ -200,14 +200,13 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         return self.get_obs(), {}
         
     def update(self, actions):
-        self.rewards = {0:0}
         self.time += 1 * self.speed
         # Thrust is acc times anguv
         ship = self.playerShips[0]
         ship.update(actions[0], self.missiles, self.speed, grav_multiplier=self.grav_multiplier, rng=self.rng)
         if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE):
             self.terminated = True;
-            self.rewards[0] = -1
+            self.rewards[0] += -1
         # Update the dummy ship
         target = self.playerShips[1]
         if ((self.target_speed != 0) or (target.stored_missiles != 0)):
@@ -225,15 +224,16 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                 if (si != -1):
                     if (si == 0):
                         self.terminated = True
-                        self.rewards[0] = -1
+                        self.rewards[0] += -1
                     else:
-                        self.rewards[0] = 1
+                        self.rewards[0] += 1
                         if (self.no_respawn==False):
                             self.new_target_position() # If it crashes, respawn it
                         else:
                             self.terminated = True
 
     def step(self, actions):
+        self.rewards = {0:0}
         for _ in range(self.repeats):
             self.update(actions)
             truncated = (self.time >= self.maxTime)
