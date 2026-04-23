@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw
 import pygame
 
 from classes.repeated_space import RepeatedCustom
-from classes.attention_encoder import CRITIC_ONLY
+from classes.attention_encoder import CRITIC_ONLY, SELF
 
 from environments.SpaceWar_constants import *
 from environments.SpaceWar_objects import Missile, Ship, ego_pt, wrap
@@ -101,7 +101,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
         missile_space = Box(-1,1,shape=(Missile.REPR_SIZE+Missile.AUG_DIM*self.augment_obs,))
         self.missile_space = RepeatedCustom(missile_space, NUM_MISSILES)
         obs_space = {
-            "self": Box(-1,1,shape=(Ship.REPR_SIZE+Ship.ALL_AUG_DIM*self.augment_obs,)), 
+            SELF: Box(-1,1,shape=(Ship.REPR_SIZE+Ship.ALL_AUG_DIM*self.augment_obs,)), 
             "opponent": Box(-1,1,shape=(Ship.REPR_SIZE+Ship.OTHER_AUG_DIM*self.augment_obs,)),
             "missiles_friendly": self.missile_space, # Friendly missiles
             "missiles_hostile": self.missile_space # Hostile missiles
@@ -114,7 +114,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
     def get_obs(self):
         ego = self.playerShips[0] if self.egocentric else None
         obs = {
-            "self": self.playerShips[0].get_obs(ego, self.augment_obs),
+            SELF: self.playerShips[0].get_obs(ego, self.augment_obs),
             "opponent": self.playerShips[1].get_obs(ego, self.augment_obs),
             "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego, self.augment_obs) for m in self.missiles]),
             "missiles_hostile":  self.missile_space.encode_obs([m.get_obs(ego, self.augment_obs) for m in self.opponent_missiles]),

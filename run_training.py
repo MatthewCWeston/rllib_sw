@@ -31,7 +31,7 @@ from ray.rllib.utils.metrics import (
     NUM_ENV_STEPS_SAMPLED_LIFETIME,
 )
 
-from classes.attention_encoder import AttentionPPOCatalog
+from classes.attention_encoder import AttentionPPOCatalog, MEAN_POOL, MAX_POOL, CLS_TOKEN
 from classes.run_tune_training import run_tune_training
 from classes.curiosity import add_curiosity
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
@@ -82,6 +82,8 @@ parser.add_argument("--full-transformer", action='store_true') # Use full Transf
 parser.add_argument("--gated-transformer", action='store_true') # Use gated attention
 parser.add_argument("--attn-recursive", action='store_true')
 parser.add_argument("--dropout", type=float, default=0.1) # In theory, this shouldn't help. In practice, it helps.
+parser.add_argument("--pool-operation", type=str, # Pooling operation after transformer encoder
+    choices=[MEAN_POOL, MAX_POOL, CLS_TOKEN], default=MEAN_POOL)
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
 parser.add_argument("--activation-fn", type=str, default='relu') # Activation function for the network head.
 parser.add_argument('--use-layernorm', action='store_true') # Use the norm
@@ -197,6 +199,7 @@ if (not args.no_custom_arch):
                 "override_activation_fn": lrelu_override,
                 "vf_share_layers": args.share_layers,
                 "head_fcnet_use_layernorm": args.use_layernorm,
+                "pool_operation": args.pool_operation,
             },
         )
     }

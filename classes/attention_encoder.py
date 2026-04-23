@@ -17,6 +17,11 @@ from torch import nn
 import torch.nn.functional as F
 
 CRITIC_ONLY = "CRITIC_ONLY" # Environment dynamics that the actor encoder should discard
+SELF = "self" # Serves as our CLS token where applicable
+
+MEAN_POOL = 'mean'
+MAX_POOL = 'max'
+CLS_TOKEN = 'cls'
 
 class SimpleTransformerLayer(nn.Module): # A simple transformer layer implementation
     '''
@@ -88,6 +93,7 @@ class AttentionEncoder(TorchModel, Encoder):
             self.emb_dim = config.emb_dim
             self.recursive = config.recursive
             self.attn_layers = config.attn_layers
+            self.pool_operation = config.pool_operation
             # Use an attention layer to reduce observations to a fixed length
             mhas = []
             for _ in range(self.attn_layers):
@@ -95,7 +101,6 @@ class AttentionEncoder(TorchModel, Encoder):
                     mhas.append(nn.TransformerEncoderLayer(d_model=self.emb_dim, 
                         dim_feedforward=config.attn_ff_dim, nhead=4, batch_first=True))
                 elif (config.gated_transformer):
-                    print("Using gated transformer")
                     mhas.append(GatedTransformerLayer(self.emb_dim, 4,
                         h_dim=config.attn_ff_dim, dropout=config.dropout))
                 else:
@@ -133,9 +138,12 @@ class AttentionEncoder(TorchModel, Encoder):
         obs_s = self.observation_space
         embeddings = []
         masks = []
-        for s in obs.keys():
+        cls_indices = []
+        for i, s in enumerate(obs.keys()):
             if (CRITIC_ONLY in s and (not self.is_critic_encoder)):
                 continue # Ignore critic only information
+            if (s == SELF):
+                cls_indices.append(i)
             v = obs[s]
             v_s = obs_s[s]
             if (type(v_s) is Discrete):
@@ -167,10 +175,19 @@ class AttentionEncoder(TorchModel, Encoder):
         for i in range(self.attn_layers):
             layer = self.mha[0] if self.recursive else self.mha[i]
             x = layer(x, src_key_padding_mask=(1-mask))
-        # Masked mean-pooling.
-        mask = mask.unsqueeze(dim=2)
-        x = x * mask  # Mask x to exclude nonexistent entries from mean pool op
-        x = x.mean(dim=1) * mask.shape[1] / mask.sum(dim=1)  # Adjust mean
+        # Masked pooling.
+        if (self.pool_operation in [MEAN_POOL, MAX_POOL]:
+            mask = mask.unsqueeze(dim=2)
+            x = x * mask  # Mask x to exclude nonexistent entries from mean pool op
+            if (self.pool_operation == MEAN_POOL):
+                x = x.mean(dim=1) * mask.shape[1] / mask.sum(dim=1)  # Adjust mean
+            else:
+                x = x.max(dim=1)
+        elif (self.pool_operation == CLS_TOKEN): # Use representation of self as a CLS token
+            assert len(cls_indices)==1
+            x = x[:, cls_indices[0]]
+        else:
+            raise Exception("Invalid pooling operation specified")
         return {ENCODER_OUT: x}
 
 
@@ -184,6 +201,7 @@ class AttentionEncoderConfig(ModelConfig):
         self.attn_layers = kwargs["model_config_dict"]["attn_layers"]
         self.recursive = kwargs["model_config_dict"].get("recursive", False)
         self.dropout = kwargs["model_config_dict"].get("dropout", 0.1)
+        self.pool_operation = kwargs["model_config_dict"].get("pool_operation", MEAN_POOL)
         self.output_dims = (self.emb_dim,)
 
     def build(self, framework, is_critic=False):
