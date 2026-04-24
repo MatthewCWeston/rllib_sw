@@ -55,6 +55,8 @@ class Missile():
         mv = self.vel
         mp += mv * speed # Move missile
         for si in range(len(ships)): # Missile hits target
+            if (ships[si].h_reload > HYPERSPACE_RECHARGE - HYPERSPACE_REENTRY):
+                continue # Ships in hyperspace can't be hit
             if (np.linalg.norm(mp-ships[si].pos, 2) < ships[si].size):
                 return si, True
         if (np.linalg.norm(mp, 2) < STAR_SIZE): # Missile hits star
