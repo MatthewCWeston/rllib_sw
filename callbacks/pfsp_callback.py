@@ -79,7 +79,16 @@ class PFSPCallback(RLlibCallback):
         # This function is called by every env runner; results are collated afterwards.
         for episode in samples:
             if (episode.is_done):
-                rewards = episode.get_rewards()
+                try:
+                    rewards = episode.get_rewards()
+                except Exception as e:
+                    print("Exception while fetching rewards")
+                    print(episode)
+                    print(episode.agent_module_ids)
+                    print(episode.rewards)
+                    print(episode.terminateds)
+                    print(episode.truncateds)
+                    continue
                 assert len(rewards)==2
                 w_agent, l_agent = list(rewards.keys())
                 # Update stats

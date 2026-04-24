@@ -52,7 +52,7 @@ class LoadOnAlgoInitCallback(RLlibCallback):
                 keys_to_load = filter(lambda x: x[:2]=='vf' or x[8:14]=='critic', list(original_state.keys()))
                 original_states[dest_module] = {k: original_state[k] for k in keys_to_load}
             if (self.iters_to_warmup_new != -1):
-                print(f"================================ ORIGINAL STATE: {original_state['encoder.critic_encoder.mha.0.residual.3.bias']}")
+                print(f"================================ ORIGINAL STATE: {original_state['encoder.critic_encoder.mha.0.ff.3.bias']}")
             # Cold start: Could edit restore_from_path for cold start; remember that Algorithm has its own override.
             # Could also create a temp file with the vf weights stripped out, like in https://github.com/ray-project/ray/blob/master/rllib/algorithms/tests/test_algorithm_rl_module_restore.py
             algorithm.restore_from_path(
@@ -68,7 +68,7 @@ class LoadOnAlgoInitCallback(RLlibCallback):
             )
             new_state = m_to_load.state_dict()
             if (self.iters_to_warmup_new != -1):
-                print(f"================================ NEW STATE: {new_state['encoder.critic_encoder.mha.0.residual.3.bias']}")
+                print(f"================================ NEW STATE: {new_state['encoder.critic_encoder.mha.0.ff.3.bias']}")
             # Build a list of parameters that *weren't* changed. Those are our new values.
             if (self.iters_to_warmup_new != -1):
                 for (on, op), (nn, np) in zip(original_state.items(), new_state.items()):
