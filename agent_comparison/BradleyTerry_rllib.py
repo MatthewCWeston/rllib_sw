@@ -191,7 +191,7 @@ if __name__ == '__main__':
 	specs = {}
 
 	lrelu_override = args.activation_fn=="leakyrelu"
-	checkpoint_list = [f for f in Path(args.agent_folder).iterdir() if f.is_dir()]
+	checkpoint_list = [f for f in Path(args.agent_folder).iterdir() if f.is_dir() and x.name != 'wandb']
 
 	module_list = [x.name for x in checkpoint_list]
 	module_weights = {}
