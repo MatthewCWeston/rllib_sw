@@ -114,7 +114,7 @@ class PFSPCallback(RLlibCallback):
         # Clone an agent
         vid = self.version_counter[to_clone]
         self.version_counter[to_clone] += 1
-        new_module_id = f"{to_clone}_v{vid}"
+        new_module_id = f"{to_clone}_v{vid:03d}"
         self.just_added.append(new_module_id)
         self.league.append(new_module_id)
         print(f"adding new opponent to the mix ({new_module_id}).")
