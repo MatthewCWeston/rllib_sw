@@ -6,6 +6,7 @@ import torch
 from functools import partial
 import numpy as np
 from datetime import datetime
+from collections import defaultdict
 
 import ray
 from ray.rllib.models import ModelCatalog
@@ -71,6 +72,7 @@ parser.add_argument("--iters-to-warmup-new", type=int, default=-1)
 parser.add_argument("--add-v0", action="store_true") # Add a v_zero agent, to train against a static opponent
 parser.add_argument("--no-load-main", action="store_true") # When loading, don't restore the learning module.
 parser.add_argument("--pfsp", action="store_true") # If set, use PFSP instead of SP
+parser.add_argument("--apfsp", action="store_true") # If set, use PFSP with a main exploiter
 parser.add_argument("--steps-to-clone", type=int, default=50) # Clone PFSP agent every K steps
 parser.add_argument("--identity-aug", action="store_true") # Augment the critic with the opposing agent's identity
 parser.add_argument("--opponents-path", type=os.path.abspath) # Folder containing a directory of checkpoints
@@ -93,6 +95,7 @@ register_env("env", lambda cfg: target_env(cfg))
 
 # Configure run
 callbacks = []
+env_to_module = []
 config = (
     PPOConfig()
     .environment(
@@ -135,12 +138,14 @@ act_space = env.action_spaces[agent_id]
 # Architecture
 specs = {}
 modules = [MAIN_MODULE]
+if (args.apfsp):
+    from callbacks.a_pfsp_callback import MAIN_EXPLOITER
+    modules.append(MAIN_EXPLOITER)
 
 # Load initial opponents from a folder
 opponents = []
 if (args.opponents_path is not None):
     opponents = [f for f in os.listdir(args.opponents_path) if os.path.isdir(os.path.join(args.opponents_path, f))]
-    modules.extend(opponents)
     print(f"Loading opponents: {args.opponents_path}; {opponents}")
     for o in opponents:
         callbacks.append(partial(
@@ -165,7 +170,7 @@ else:
         return MAIN_MODULE
 
 lrelu_override = args.activation_fn=="leakyrelu"
-for a in modules:
+for a in modules + opponents:
     specs[a] = RLModuleSpec(
         catalog_class=AttentionPPOCatalog,
         #observation_space=obs_space, # Doesn't work when we're using an obs space preprocessor
@@ -184,26 +189,18 @@ for a in modules:
             "dropout": args.dropout,
         },
     )
-    
-config.multi_agent(
-    policies=modules,
-    policy_mapping_fn=atm_fn,
-    policies_to_train=[MAIN_MODULE], # Only the learned policy should be trained.
-)
         
 # Load policy if applicable.
 if (args.restore_checkpoint):
     print(f"Restoring checkpoint: {args.restore_checkpoint}")
-    dest_modules = [MAIN_MODULE]
-    if (args.no_load_main):
+    dest_modules = modules.copy()
+    if args.no_load_main:
         dest_modules.remove(MAIN_MODULE)
-    if (args.add_v0):
-        dest_modules.append(v0_name)
     callbacks.append(partial(
         LoadOnAlgoInitCallback,
         ckpt_path=args.restore_checkpoint,
         module_name=MAIN_MODULE,
-        dest_module_names=dest_modules, # Restore weights into all active agents
+        dest_module_names=dest_modules, # Restore weights into all learning agents
         vf_cold_start=args.vf_cold_start,
         iters_to_warmup_new=args.iters_to_warmup_new,
     ))
@@ -211,7 +208,7 @@ if (args.restore_checkpoint):
 # Evaluate under a fixed config demonstrating the hardest conditions
 if (args.elo_eval): 
     from callbacks.elo_eval import elo_eval_fn
-    assert not args.pfsp # Mutually exclusive
+    assert not (args.pfsp or args.apfsp) # PFSP uses BT instead
     checkpoint_path = os.path.join(args.results_path, args.experiment_name, args.trial_name)
     print(f"Using ELO evaluation: {checkpoint_path}")
     config.evaluation(
@@ -222,13 +219,31 @@ if (args.elo_eval):
         evaluation_duration=args.evaluation_duration, # Episodes to evaluate (can be 'auto' when parallel)
     )
 elif (args.pfsp):
-    from callbacks.pfsp_callback import PFSPCallback
+    from callbacks.pfsp_callback import PFSPCallback, create_atm_fn
     callbacks.append(partial(PFSPCallback,
                       clone_every=args.steps_to_clone,
-                      league_initial=modules,
+                      league_initial=modules + opponents,
                       id_aug=args.identity_aug,
                       warmup=max(0, args.iters_to_warmup_new),
                       ))
+    atm_fn = create_atm_fn(modules + opponents, None, [])
+elif (args.apfsp):
+    from callbacks.a_pfsp_callback import APFSPCallback, create_atm_fn, DisableTeacherLearning
+    callbacks.append(partial(APFSPCallback,
+                      clone_every=args.steps_to_clone,
+                      league_initial=modules + opponents,
+                      id_aug=args.identity_aug,
+                      warmup=max(0, args.iters_to_warmup_new),
+                      ))
+    atm_fn = create_atm_fn(modules + opponents, None, [])
+    env_to_module.append(DisableTeacherLearning()) # Main agent shouldn't be influenced by exploiter's training episodes
+
+config.multi_agent(
+    policies=modules,
+    policy_mapping_fn=atm_fn,
+    # Only the learned policy should be trained.
+    policies_to_train=[MAIN_MODULE] if not args.apfsp else [MAIN_MODULE, MAIN_EXPLOITER], 
+)
 
 if (args.identity_aug): # Add a unique identity value to the critic's observations.
     from callbacks.augment_critic_with_id import AugmentCriticWithOpponentID
@@ -240,14 +255,11 @@ if (args.identity_aug): # Add a unique identity value to the critic's observatio
             return 0
         else:
             return int(mname.split('_v')[-1])+1
-    config.env_runners(
-        env_to_module_connector=lambda env, spaces, device: [
-            AugmentCriticWithOpponentID(
-                module_name_to_id=module_name_to_id,
-                max_opponents=MAX_OPPONENTS,
-                ),
-        ],
-    )
+    env_to_module.append(AugmentCriticWithOpponentID(
+        module_name_to_id=module_name_to_id, max_opponents=MAX_OPPONENTS,))
+config.env_runners(
+    env_to_module_connector=lambda env, spaces, device: env_to_module,
+)
 
 # Record matches every K epochs
 if (args.render_every > 0):

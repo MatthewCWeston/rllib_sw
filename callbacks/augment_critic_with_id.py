@@ -1,4 +1,3 @@
-# @title AugmentCriticWithOpponentID
 from typing import Any, Optional
 from collections.abc import Callable
 

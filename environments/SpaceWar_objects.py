@@ -158,7 +158,7 @@ class Ship():
         else:
             self.reloadTime =  max(self.reloadTime-speed,0)
         # Hyperspace
-        if (len(action) == 4 and self.h_charges > 0 and self.h_reload == 0 and action[3]==1):
+        if (self.h_charges > 0 and self.h_reload == 0 and action[3]==1):
             self.h_reload = HYPERSPACE_RECHARGE
             self.h_charges -= 1
         # Update position
@@ -208,7 +208,7 @@ class Ship():
                     star_coords = rotate_pt(-self.pos, -ego.ang)
                     # Bearing: Egocentric position of target, normalized by distance to target.
                     dist = np.linalg.norm(p)
-                    opp_bearing = p / dist
+                    opp_bearing = p / dist if dist != 0 else p
                     # Speed at which distance is being closed to ego point
                     closing_speed = np.dot(opp_bearing, (v - rotate_pt(ego.vel, -ego.ang))) / 2
                     aug_vec.extend(np.concatenate([star_coords, opp_bearing, [dist, closing_speed]]))

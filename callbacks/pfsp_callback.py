@@ -18,7 +18,7 @@ from callbacks.elo_eval import print_elo_table
 from callbacks.augment_critic_with_id import OPPONENT_ID
 
 MAIN_MODULE = 'my_policy'
-MAX_OPPONENTS = 50
+MAX_OPPONENTS = 100
 
 ### Log agent performance using Bradley-Terry
 def build_wins(module_list, win_counts_t):
@@ -32,6 +32,8 @@ def build_wins(module_list, win_counts_t):
 
 ### Probabilistic fictitious self play
 def pfsp(agent, opponents, wr, rng):
+    if (wr is None):
+        return rng.choice(opponents)
     weights = np.array([wr[o][agent] for o in opponents])
     weights = weights**2 # Weight by square of opponent win rate
     wr_sum = weights.sum()

@@ -49,6 +49,9 @@ class SW_1v1_env(MultiAgentEnv):
                 "missiles_friendly": self.missile_space.encode_obs([m.get_obs(ego, self.augment_obs) for m in self.missiles[(i)%2]]),
                 "missiles_hostile": self.missile_space.encode_obs([m.get_obs(ego, self.augment_obs) for m in self.missiles[(i+1)%2]]),
               }
+        for p in [0,1]:
+            for k, v in obs[p].items():
+                assert not np.isnan(v).any(), f"NaN in obs {k}"
         return obs
     def get_keymap(self): # Set multidiscrete 
         return {0: {pygame.K_UP: (0,1,False), # Action, Value, hold_disallowed (qol)

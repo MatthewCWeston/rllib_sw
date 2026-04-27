@@ -8,7 +8,7 @@ from ray.rllib.core.columns import Columns
 def load_checkpoint(ckpt, module_id):
     if (not os.path.isfile(os.path.join(ckpt, "module_state.pkl"))): # We accept paths to the checkpoint and to the module.
         ckpt = os.path.join(
-            ckpt_path,
+            ckpt,
             "learner_group",
             "learner",
             "rl_module",

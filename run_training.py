@@ -72,6 +72,7 @@ parser.add_argument("--curriculum-allow-demotions", action='store_true') # Thres
 parser.add_argument("--share-layers", action='store_true') # Only applies to custom architecture
 parser.add_argument("--lr", type=float, default=1e-6) 
 parser.add_argument("--lr-half-life", type=float) # Train steps for LR to halve, for exponential decay
+parser.add_argument("--clip-param", type=float, default=0.3)
 parser.add_argument("--vf-clip", type=str, default='40.0')
 parser.add_argument("--gamma", type=float, default=.999) # Reward discount over time
 parser.add_argument("--lambda_", type=float, default=0.8) # Bootstrapping ratio (lower=more bootstrapped)
@@ -132,6 +133,7 @@ config = (
         minibatch_size=args.minibatch_size,
         gamma=args.gamma,
         lr=args.lr,
+        clip_param=args.clip_param,
         vf_clip_param=float(args.vf_clip),
         use_kl_loss=args.kl_loss,
         entropy_coeff=args.entropy_coeff,
