@@ -12,6 +12,7 @@ from ray.rllib.callbacks.callbacks import RLlibCallback
 from ray.rllib.core.rl_module.rl_module import RLModuleSpec
 from ray.rllib.core.rl_module.multi_rl_module import MultiRLModuleSpec
 from ray.rllib.utils.metrics import ENV_RUNNER_RESULTS
+from ray.rllib.utils.annotations import override
 from ray.rllib.core import (
     COMPONENT_RL_MODULE,
     COMPONENT_LEARNER,
@@ -25,7 +26,7 @@ from callbacks.augment_critic_with_id import OPPONENT_ID
 MAIN_MODULE = 'my_policy'
 MAIN_EXPLOITER = 'main_exploiter'
 APFSP_MODULES = [MAIN_MODULE, MAIN_EXPLOITER]
-MAX_OPPONENTS = 100
+MAX_OPPONENTS = 200
 
 # Get the agent that will be learning this episode, from the set of learning agents
 def get_learning_agent(episode, policies_to_train):
@@ -109,10 +110,10 @@ class PFSPCallback(RLlibCallback):
                 except Exception as e:
                     print("Exception while fetching rewards")
                     print(episode)
-                    print(episode.agent_module_ids)
-                    print(episode.rewards)
-                    print(episode.terminateds)
-                    print(episode.truncateds)
+                    for aid, ep in episode.agent_episodes.items():
+                        print(f" -- {aid}: {ep.module_id} -- ")
+                        print(ep.actions)
+                        print(ep.rewards)
                     continue
                 assert len(rewards)==2
                 w_agent, l_agent = list(rewards.keys())

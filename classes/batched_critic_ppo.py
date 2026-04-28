@@ -97,6 +97,7 @@ class BatchedCriticPPOLearner(PPOTorchLearner):
               BatchedGeneralAdvantageEstimation(
                   gamma=self.config.gamma, lambda_=self.config.lambda_, 
                   batch_size=self.config.learner_config_dict["critic_batch_size"],
+                  batch_hooks=self.config.learner_config_dict.get("batch_hooks", []),
               )
           )
         # Cold start the value function?
@@ -225,9 +226,10 @@ class BatchedGeneralAdvantageEstimation(GeneralAdvantageEstimation):
 
     This subclass uses the minibatch size specified in the learner config to batch the value computations, preventing OOM errors when working with complex modules and large batch sizes.
     """
-    def __init__(self,input_observation_space=None,input_action_space=None,*,gamma,lambda_, batch_size,):
+    def __init__(self,input_observation_space=None,input_action_space=None,*,gamma,lambda_, batch_size, batch_hooks=[]):
         super().__init__(input_observation_space, input_action_space, gamma=gamma, lambda_=lambda_)
         self.batch_size = batch_size
+        self.batch_hooks = batch_hooks # Allows us to hook batch manipulations into the GAE connector.
 
     @override(ConnectorV2)
     def __call__(
@@ -239,6 +241,8 @@ class BatchedGeneralAdvantageEstimation(GeneralAdvantageEstimation):
         **kwargs,
     ):
         with torch.no_grad(): # We're computing advantages (for actor optimization) and targets (goals for vf optimization). I don't think either one needs gradients.
+            for b in self.batch_hooks:
+                b.__call__(rl_module=rl_module, batch=batch, episodes=episodes)
             # Device to place all GAE result tensors (advantages and value targets) on.
             device = None
 
