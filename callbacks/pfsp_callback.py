@@ -1,4 +1,9 @@
 from collections import defaultdict
+from typing import Any, List, Dict
+from ray.rllib.connectors.connector_v2 import ConnectorV2
+from ray.rllib.core.columns import Columns
+from ray.rllib.core.rl_module.rl_module import RLModule
+from ray.rllib.utils.typing import EpisodeType
 
 import numpy as np
 import torch
@@ -18,7 +23,18 @@ from callbacks.elo_eval import print_elo_table
 from callbacks.augment_critic_with_id import OPPONENT_ID
 
 MAIN_MODULE = 'my_policy'
+MAIN_EXPLOITER = 'main_exploiter'
+APFSP_MODULES = [MAIN_MODULE, MAIN_EXPLOITER]
 MAX_OPPONENTS = 100
+
+# Get the agent that will be learning this episode, from the set of learning agents
+def get_learning_agent(episode, policies_to_train):
+  # Returns the agent (X or O) and the ID of the 'student' policy
+  len_policies = len(policies_to_train)
+  eid = hash(episode.id_) % (2*len_policies)
+  agent_id = 1 if eid < len_policies else 0
+  policy_id = policies_to_train[eid%len_policies]
+  return agent_id, policy_id
 
 ### Log agent performance using Bradley-Terry
 def build_wins(module_list, win_counts_t):
@@ -45,30 +61,37 @@ def create_atm_fn(agent_names, wr, just_added):
     ''' agent_names is a list of all league agents' names.
     wr is a dictionary of win rates '''
     def atm_fn(agent_id, episode, **kwargs):
+        student_agent, student_policy = get_learning_agent(
+            episode,
+            APFSP_MODULES if MAIN_EXPLOITER in agent_names else [MAIN_MODULE],
+        )
         eid = abs(hash(episode.id_))
         rng = np.random.default_rng(seed=eid)
-        if (eid % 2 == 0) != (agent_id==0):
-            return MAIN_MODULE
-        # Select an opponent.
-        valid_options = list(filter(lambda s: s!=MAIN_MODULE and s not in just_added, agent_names))
-        if (len(valid_options)==0):
-            return MAIN_MODULE
-        return pfsp(MAIN_MODULE, valid_options, wr, rng)
+        if (agent_id==student_agent):
+            return student_policy
+        if (student_policy == MAIN_MODULE):
+            # Select an opponent.
+            valid_options = list(filter(lambda s: s!=MAIN_MODULE and s not in just_added, agent_names))
+            if (len(valid_options)==0): # Default to self-play
+                return MAIN_MODULE
+            return pfsp(MAIN_MODULE, valid_options, wr, rng)
+        else:
+            return MAIN_MODULE # Main exploiter always plays against the main policy
     return atm_fn
 
 def get_mc_string(agent1, agent2):
     return '-'.join(sorted([agent1, agent2]))
 
 class PFSPCallback(RLlibCallback):
-    def __init__(self, league_initial, clone_every=10, id_aug=False, warmup=0):
+    def __init__(self, league_initial, module_name_to_id=None, clone_every=10, id_aug=False, warmup=0):
         super().__init__()
         self.clone_every = clone_every
         self.warmup = warmup # Extra steps to wait the first time around
         self.id_aug = id_aug # Does the main agent need ID embeddings updated when agents are cloned?
+        self.module_name_to_id = module_name_to_id
         self.league = league_initial
         self.win_counts = defaultdict(lambda: defaultdict(lambda:0))
         self.match_counts = defaultdict(lambda:0)
-        self.version_counter = defaultdict(lambda: 1)
         # Track previous totals to facilitate stat inheriting
         self.win_counts_t = defaultdict(lambda: defaultdict(lambda:0))
         self.match_counts_t = defaultdict(lambda:0)
@@ -111,15 +134,17 @@ class PFSPCallback(RLlibCallback):
                         0.5 if (w_module==l_module) else 1,
                         reduce='lifetime_sum'
                     )
+                    
+    def get_max_version(self, module_name):
+        return max((int(s.split('_v')[-1]) for s in self.league if s.startswith(f"{module_name}_v")), default=0)
 
     def clone_agent(self, algorithm, to_clone):
-        # Clone an agent
-        vid = self.version_counter[to_clone]
-        self.version_counter[to_clone] += 1
-        new_module_id = f"{to_clone}_v{vid:03d}"
-        self.just_added.append(new_module_id)
-        self.league.append(new_module_id)
-        print(f"adding new opponent to the mix ({new_module_id}).")
+        current_version = self.get_max_version(to_clone)
+        prior_version_name = f"{to_clone}_v{current_version:03d}" if current_version != 0 else to_clone
+        new_module_name = f"{to_clone}_v{current_version+1:03d}"
+        self.just_added.append(new_module_name)
+        self.league.append(new_module_name)
+        print(f"adding new opponent to the mix ({new_module_name}).")
         for opponent in list(self.win_counts[to_clone].keys()): 
             # Reduce source match and win counts by x10 after cloning, to provide it with a 'fresh start'
             self.match_counts[get_mc_string(to_clone, opponent)] /= 10
@@ -129,19 +154,23 @@ class PFSPCallback(RLlibCallback):
         # Add the new module
         cloned_module = algorithm.get_module(to_clone)
         algorithm.add_module(
-            module_id=new_module_id,
+            module_id=new_module_name,
             module_spec=RLModuleSpec.from_module(cloned_module),
         )
-        module_updates = {new_module_id: cloned_module.get_state(),}
+        module_updates = {new_module_name: cloned_module.get_state(),}
         # The embedding for the previous ID is copied into the new one whenever an update occurs.
         if (self.id_aug):
-            mm = algorithm.learner_group._learner._module[MAIN_MODULE]
-            critic_enc = mm.encoder.critic_encoder
-            emb = critic_enc.embs[OPPONENT_ID] # The Embedding module for opponent identity, which we want to update.
-            with torch.no_grad(): # Copy over id value from previous agent
-                emb.weight[vid+1,:] = emb.weight[vid,:].clone() # Main takes up index zero, our new agent's embedding is at vid+1
-                print(f"UPDATED ENCODER EMBEDDING WEIGHTS AT INDEX {vid+1}: {emb.weight.shape} {emb.weight.sum(dim=1)[:5]}")
-            module_updates[MAIN_MODULE] = mm.get_state()
+            # Main exploiter doesn't need its IDs updated because it only ever plays against main. We do this solely to future-proof.
+            for learning_module_name in [MAIN_MODULE, MAIN_EXPLOITER]:
+                if (learning_module_name not in self.league):
+                    continue
+                mm = algorithm.learner_group._learner._module[learning_module_name]
+                critic_enc = mm.encoder.critic_encoder
+                emb = critic_enc.embs[OPPONENT_ID] # The Embedding module for opponent identity, which we want to update.
+                with torch.no_grad(): # Copy over id value from previous agent
+                    emb.weight[self.module_name_to_id(new_module_name),:] = emb.weight[self.module_name_to_id(prior_version_name),:].clone()
+                    print(f"UPDATED ENCODER EMBEDDING WEIGHTS AT INDEX {self.module_name_to_id(new_module_name)}: {emb.weight.shape} {emb.weight.sum(dim=1)[:5]}")
+                module_updates[learning_module_name] = mm.get_state()
         # Syncs weights across everything
         algorithm.set_state({
             COMPONENT_LEARNER_GROUP: {
@@ -221,11 +250,49 @@ class PFSPCallback(RLlibCallback):
         bt_dict = algorithm.metrics.peek("BradleyTerry")
         print_elo_table(bt_dict)
         # Clone the agent if it's doing better than when it was last cloned or if it's beating the rest of the league
-        if ((iter)%(self.clone_every+self.warmup)==0) and (len(self.league) < MAX_OPPONENTS):
+        if (len(self.league) < MAX_OPPONENTS) and ((iter)%(self.clone_every+self.warmup)==0):
+            to_clone = set()
             threshold = min(self.prev_best, max(bt_dict.values()))
             if (bt_dict[MAIN_MODULE] >= threshold):
-                self.clone_agent(algorithm, MAIN_MODULE)
+                to_clone.add(MAIN_MODULE)
                 self.prev_best = bt_dict[MAIN_MODULE]
                 self.warmup = 0
+            # Main exploiter
+            if MAIN_EXPLOITER in self.league:
+                if (iter)%(2*self.clone_every)==0:
+                    to_clone.add(MAIN_EXPLOITER)
+                elif self.win_counts[MAIN_EXPLOITER][MAIN_MODULE] > (7/3)*self.win_counts[MAIN_MODULE][MAIN_EXPLOITER]:
+                    to_clone.add(MAIN_EXPLOITER) # Clone the main exploiter if it has a 70% win rate against main policy
+                    print(f'Cloning {MAIN_EXPLOITER} on merit')
+            for m in to_clone:
+                self.clone_agent(algorithm, m)
         # Update mapping function, reweighting and adding new module if needed
         self.update_atm_fn(algorithm, dict(wrs))
+
+# Disables learning for teacher agents' batches. Used when there's more than one learning agent and they might face each other.
+class DisableTeacherLearning(ConnectorV2):
+
+    @override(ConnectorV2)
+    def __call__(
+        self,
+        *,
+        rl_module: RLModule,
+        batch: Dict[str, Any],
+        episodes: List[EpisodeType],
+        **kwargs,
+    ) -> Any:
+        for aid in batch:
+            b_obs = batch[aid][Columns.OBS]
+            if (Columns.LOSS_MASK not in batch[aid].keys()):
+                batch[aid][Columns.LOSS_MASK] = torch.ones((b_obs.shape[0],), dtype=torch.bool).to(b_obs.device)
+        start_indices = defaultdict(lambda: 0)
+        for mep in episodes:
+            student_agent, student_policy = get_learning_agent(mep, APFSP_MODULES)
+            s_ep, o_ep = mep.agent_episodes[student_agent], mep.agent_episodes[(student_agent+1)%2]
+            s_mid, o_mid = s_ep.module_id, o_ep.module_id
+            s_l, o_l = len(s_ep), len(o_ep)
+            start_indices[s_mid]+=s_l
+            o_s = start_indices[o_mid]
+            start_indices[o_mid]+=o_l
+            if (o_mid!=student_policy): # Mask except in direct self-play
+                batch[o_mid][Columns.LOSS_MASK][o_s:o_s+o_l] = False

@@ -28,8 +28,8 @@ class AugmentCriticWithOpponentID(MultiAgentObservationPreprocessor):
         **kwargs,
     ):
         super().__init__(input_observation_space, input_action_space, **kwargs,)
-        self.module_name_to_id = module_name_to_id
         self.max_opponents = max_opponents
+        self.module_name_to_id = module_name_to_id
 
     @override(MultiAgentObservationPreprocessor)
     def recompute_output_observation_space(

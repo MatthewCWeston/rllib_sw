@@ -35,7 +35,7 @@ from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
 from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
-from callbacks.pfsp_callback import MAIN_MODULE, MAX_OPPONENTS
+from callbacks.pfsp_callback import MAIN_MODULE, MAIN_EXPLOITER, MAX_OPPONENTS
 
 from environments.SW_1v1_env import SW_1v1_env
 
@@ -139,7 +139,6 @@ act_space = env.action_spaces[agent_id]
 specs = {}
 modules = [MAIN_MODULE]
 if (args.apfsp):
-    from callbacks.a_pfsp_callback import MAIN_EXPLOITER
     modules.append(MAIN_EXPLOITER)
 
 # Load initial opponents from a folder
@@ -156,7 +155,7 @@ if (args.opponents_path is not None):
         ))
 
 if (args.add_v0):
-    v0_name = f'{MAIN_MODULE}_v0'
+    v0_name = f'{MAIN_MODULE}_v001'
     modules.append(v0_name)
     def atm_fn(agent_id, episode, **kwargs):
         if (agent_id==0):
@@ -204,6 +203,25 @@ if (args.restore_checkpoint):
         vf_cold_start=args.vf_cold_start,
         iters_to_warmup_new=args.iters_to_warmup_new,
     ))
+    
+module_name_to_id = None
+if (args.identity_aug): # Add a unique identity value to the critic's observations.
+    from callbacks.augment_critic_with_id import AugmentCriticWithOpponentID
+    def module_name_to_id(mname):
+        if (mname in opponents): # Unique indices for preset opponents
+            return MAX_OPPONENTS - 1 - opponents.index(mname)
+        elif (mname == MAIN_MODULE):
+            return 0
+        elif (mname.startswith(MAIN_MODULE)):
+            return int(mname.split('_v')[-1])
+        elif (mname == MAIN_EXPLOITER):
+            return MAX_OPPONENTS - 1 - len(opponents)
+        elif (mname.startswith(MAIN_EXPLOITER)):
+            return MAX_OPPONENTS - 1 - len(opponents) - int(mname.split('_v')[-1])
+        else:
+            raise Exception(f"{mname} ID not defined")
+    print("Adding identity augmentation")
+    env_to_module.append(AugmentCriticWithOpponentID(max_opponents=MAX_OPPONENTS, module_name_to_id=module_name_to_id))
 
 # Evaluate under a fixed config demonstrating the hardest conditions
 if (args.elo_eval): 
@@ -218,25 +236,18 @@ if (args.elo_eval):
         evaluation_interval=1,  # How often to evaluate while training
         evaluation_duration=args.evaluation_duration, # Episodes to evaluate (can be 'auto' when parallel)
     )
-elif (args.pfsp):
-    from callbacks.pfsp_callback import PFSPCallback, create_atm_fn
+elif (args.pfsp or args.apfsp):
+    from callbacks.pfsp_callback import PFSPCallback, create_atm_fn, DisableTeacherLearning
     callbacks.append(partial(PFSPCallback,
-                      clone_every=args.steps_to_clone,
                       league_initial=modules + opponents,
+                      module_name_to_id=module_name_to_id,
+                      clone_every=args.steps_to_clone,
                       id_aug=args.identity_aug,
                       warmup=max(0, args.iters_to_warmup_new),
                       ))
     atm_fn = create_atm_fn(modules + opponents, None, [])
-elif (args.apfsp):
-    from callbacks.a_pfsp_callback import APFSPCallback, create_atm_fn, DisableTeacherLearning
-    callbacks.append(partial(APFSPCallback,
-                      clone_every=args.steps_to_clone,
-                      league_initial=modules + opponents,
-                      id_aug=args.identity_aug,
-                      warmup=max(0, args.iters_to_warmup_new),
-                      ))
-    atm_fn = create_atm_fn(modules + opponents, None, [])
-    env_to_module.append(DisableTeacherLearning()) # Main agent shouldn't be influenced by exploiter's training episodes
+    if (args.apfsp): # Main agent shouldn't be influenced by exploiter's training episodes
+        env_to_module.append(DisableTeacherLearning())
 
 config.multi_agent(
     policies=modules,
@@ -245,18 +256,6 @@ config.multi_agent(
     policies_to_train=[MAIN_MODULE] if not args.apfsp else [MAIN_MODULE, MAIN_EXPLOITER], 
 )
 
-if (args.identity_aug): # Add a unique identity value to the critic's observations.
-    from callbacks.augment_critic_with_id import AugmentCriticWithOpponentID
-    print("Adding identity augmentation")
-    def module_name_to_id(mname):
-        if (mname in opponents): # Unique indices for preset opponents
-            return MAX_OPPONENTS - 1 - opponents.index(mname)
-        if ('_v' not in mname):
-            return 0
-        else:
-            return int(mname.split('_v')[-1])+1
-    env_to_module.append(AugmentCriticWithOpponentID(
-        module_name_to_id=module_name_to_id, max_opponents=MAX_OPPONENTS,))
 config.env_runners(
     env_to_module_connector=lambda env, spaces, device: env_to_module,
 )
