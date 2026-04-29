@@ -223,8 +223,9 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
                     del m[i]
                 if (si != -1):
                     if (si == 0):
-                        self.terminated = True
-                        self.rewards[0] += -1
+                        if (not self.terminated):
+                            self.terminated = True
+                            self.rewards[0] += -1
                     else:
                         self.rewards[0] += 1
                         if (self.no_respawn==False):

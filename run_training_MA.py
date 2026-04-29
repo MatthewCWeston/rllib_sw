@@ -35,7 +35,7 @@ from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
 from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
-from callbacks.pfsp_callback import MAIN_MODULE, MAIN_EXPLOITER, MAX_OPPONENTS, DisableTeacherLearning
+from callbacks.pfsp_callback import MAIN_MODULE, MAIN_EXPLOITER, MAX_OPPONENTS
 
 from environments.SW_1v1_env import SW_1v1_env
 
@@ -92,9 +92,9 @@ args = parser.parse_args()
 
 target_env = SW_1v1_env
 register_env("env", lambda cfg: target_env(cfg))
-
 # Configure run
 callbacks = []
+
 config = (
     PPOConfig()
     .environment(
@@ -113,7 +113,6 @@ config = (
         learner_config_dict={
             'critic_batch_size': args.critic_batch_size, # Just to avoid OOM; not a hyperparameter
             'vf_cold_start': args.vf_cold_start, # Pre-train the value function for K minibatches
-            'batch_hooks': [DisableTeacherLearning()] if args.apfsp else [],
         },
         grad_clip=args.grad_clip if hasattr(args, 'grad_clip') else None,
         grad_clip_by="global_norm",
@@ -239,7 +238,7 @@ if (args.elo_eval):
         evaluation_duration=args.evaluation_duration, # Episodes to evaluate (can be 'auto' when parallel)
     )
 elif (args.pfsp or args.apfsp):
-    from callbacks.pfsp_callback import PFSPCallback, create_atm_fn
+    from callbacks.pfsp_callback import PFSPCallback, create_atm_fn, APFSP_MODULES, get_learning_agent
     callbacks.append(partial(PFSPCallback,
                       league_initial=modules + opponents,
                       module_name_to_id=module_name_to_id,
@@ -248,6 +247,12 @@ elif (args.pfsp or args.apfsp):
                       warmup=max(0, args.iters_to_warmup_new),
                       ))
     atm_fn = create_atm_fn(modules + opponents, None, [])
+    if (args.apfsp):
+        from callbacks.strip_teacher_episodes import FilterTeacherCallback
+        callbacks.append(partial(FilterTeacherCallback,
+            policies_to_train=APFSP_MODULES,
+            get_learning_agent=get_learning_agent,
+        ))
 
 config.multi_agent(
     policies=modules,

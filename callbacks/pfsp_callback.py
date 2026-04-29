@@ -71,13 +71,24 @@ def create_atm_fn(agent_names, wr, just_added):
         if (agent_id==student_agent):
             return student_policy
         if (student_policy == MAIN_MODULE):
-            # Select an opponent.
-            valid_options = list(filter(lambda s: s!=MAIN_MODULE and s not in just_added, agent_names))
-            if (len(valid_options)==0): # Default to self-play
-                return MAIN_MODULE
+            selector = rng.random()
+            historical_names = list(filter(lambda s: (
+                s not in APFSP_MODULES) and (s not in just_added), agent_names))
+            if (selector < 0.5): # PFSP branch
+                valid_options = historical_names # PFSP over all historical modules
+            elif (selector < 0.65): # Verification branch; any historical agent with 70% WR
+                if (wr is None):
+                    return MAIN_MODULE
+                valid_options = list(filter(lambda s: (wr[s][MAIN_MODULE] * 3/7 > wr[MAIN_MODULE][s]), historical_names))
+            else: # Self-play branch
+                return MAIN_MODULE 
+            if (len(valid_options)==0):
+                return MAIN_MODULE # Default to self-play
             return pfsp(MAIN_MODULE, valid_options, wr, rng)
-        else:
+        elif (student_policy == MAIN_EXPLOITER):
             return MAIN_MODULE # Main exploiter always plays against the main policy
+        else:
+            raise Exception(f"Unexpected student policy: `{student_policy}`")
     return atm_fn
 
 def get_mc_string(agent1, agent2):
@@ -269,31 +280,3 @@ class PFSPCallback(RLlibCallback):
                 self.clone_agent(algorithm, m)
         # Update mapping function, reweighting and adding new module if needed
         self.update_atm_fn(algorithm, dict(wrs))
-
-# Disables learning for teacher agents' batches. Used when there's more than one learning agent and they might face each other.
-class DisableTeacherLearning(ConnectorV2):
-
-    @override(ConnectorV2)
-    def __call__(
-        self,
-        *,
-        rl_module: RLModule,
-        batch: Dict[str, Any],
-        episodes: List[EpisodeType],
-        **kwargs,
-    ) -> Any:
-        for aid in batch:
-            b_obs = batch[aid][Columns.OBS]
-            if (Columns.LOSS_MASK not in batch[aid].keys()):
-                batch[aid][Columns.LOSS_MASK] = torch.ones((b_obs.shape[0],), dtype=torch.bool).to(b_obs.device)
-        start_indices = defaultdict(lambda: 0)
-        for mep in episodes:
-            student_agent, student_policy = get_learning_agent(mep, APFSP_MODULES)
-            s_ep, o_ep = mep.agent_episodes[student_agent], mep.agent_episodes[(student_agent+1)%2]
-            s_mid, o_mid = s_ep.module_id, o_ep.module_id
-            s_l, o_l = len(s_ep), len(o_ep)
-            start_indices[s_mid]+=s_l
-            o_s = start_indices[o_mid]
-            start_indices[o_mid]+=o_l
-            if (o_mid!=student_policy): # Mask except in direct self-play
-                batch[o_mid][Columns.LOSS_MASK][o_s:o_s+o_l] = False
