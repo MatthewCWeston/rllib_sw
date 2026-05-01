@@ -27,13 +27,18 @@ class LoadOnAlgoInitCallback(RLlibCallback):
         iters_to_warmup_new: int = -1,
     ):
         dest_module_names = dest_module_names or [module_name] # Potentially, load weights into new dest.
-        self.ckpt_path = (
-            Path(ckpt_path)  # <- algorithm's checkpoint dir
-            / COMPONENT_LEARNER_GROUP  # <- learner group
-            / COMPONENT_LEARNER  # <- learner
-            / COMPONENT_RL_MODULE  # <- MultiRLModule
-            / module_name  # <- (single) RLModule
-        )
+        if os.path.isdir(os.path.join(ckpt_path, 'learner_group')):
+            self.ckpt_path = (
+                Path(ckpt_path)  # <- algorithm's checkpoint dir
+                / COMPONENT_LEARNER_GROUP  # <- learner group
+                / COMPONENT_LEARNER  # <- learner
+                / COMPONENT_RL_MODULE  # <- MultiRLModule
+                / module_name  # <- (single) RLModule
+            )
+        else:
+            self.ckpt_path = (
+                Path(ckpt_path)  # <- algorithm's checkpoint dir
+            )
         self.dest_module_names = dest_module_names
         self.vf_cold_start = vf_cold_start # Don't load the critic's parameters
         self.iters_to_warmup_new = iters_to_warmup_new

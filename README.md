@@ -16,17 +16,27 @@ The aim of this repository is to demonstrate the subtleties of practical reinfor
  
  **Train a basic agent against an opponent that does nothing, but is placed in a stable orbit on environment start.** This allows it to learn the controls and the objective beforehand.
  ```
-  python run_training.py --env-name SW_1v1_env_singleplayer --env-config '{"speed": 5.0, "ep_length": 4096, "size_multiplier": 1.0, "grav_multiplier": 1.0, "target_speed": 1.0, "target_ammo": 0.0, "aug_obs": true, "randomize_ammo": true, "no_respawn": true, "stochastic_hspace": true}' --verbose 1 --batch-size 65536 --minibatch-size 8192 --gamma .999 --attn-dim 128 --attn-ff-dim 1024 --lr 3e-5 --lambda_ .8 --vf-clip 40 --stop-iters=800 --num-env-runners 40 --envs-per-env-runner 8 --use-layernorm --activation-fn leakyrelu --checkpoint-freq 100 --checkpoint-at-end
+  python run_training.py --env-name SW_1v1_env_singleplayer --env-config '{"speed": 5.0, "ep_length": 4096, "size_multiplier": 1.0, "grav_multiplier": 1.0, "target_speed": 1.0, "target_ammo": 0.0, "aug_obs": true, "randomize_ammo": true, "no_respawn": false, "stochastic_hspace": true}' --verbose 1 --batch-size 65536 --minibatch-size 8192 --gamma .999 --attn-dim 128 --attn-ff-dim 1024 --lr 3e-5 --lambda_ .8 --vf-clip 40 --stop-iters=800 --num-env-runners 40 --envs-per-env-runner 8 --use-layernorm --activation-fn leakyrelu --checkpoint-freq 100 --checkpoint-at-end
  ```
  
  **Train the initial agent to respond to being fired upon.** This is, in essence, the full competitive environment, just with a fixed opponent.
  ```
- python run_training.py --env-name SW_1v1_env_singleplayer --env-config '{"speed": 5.0, "ep_length": 4096, "size_multiplier": 1.0, "grav_multiplier": 1.0, "target_speed": 1.0, "target_ammo": 1.0, "aug_obs": true, "randomize_ammo": true, "no_respawn": true, "stochastic_hspace": true}' --verbose 1 --batch-size 65536 --minibatch-size 8192 --gamma .999 --attn-dim 128 --attn-ff-dim 1024 --lr 3e-5 --lambda_ .8 --vf-clip 40 --stop-iters=700 --num-env-runners 40 --envs-per-env-runner 8 --use-layernorm --activation-fn leakyrelu --checkpoint-freq 100 --checkpoint-at-end --restore-checkpoint <path_to_your_final_stage_1_checkpoint_here, or use mine>
+ python run_training.py --env-name SW_1v1_env_singleplayer --env-config '{"speed": 5.0, "ep_length": 4096, "size_multiplier": 1.0, "grav_multiplier": 1.0, "target_speed": 1.0, "target_ammo": 1.0, "aug_obs": true, "randomize_ammo": true, "no_respawn": false, "stochastic_hspace": true}' --verbose 1 --batch-size 65536 --minibatch-size 8192 --gamma .999 --attn-dim 128 --attn-ff-dim 1024 --lr 3e-5 --lambda_ .8 --vf-clip 40 --stop-iters=700 --num-env-runners 40 --envs-per-env-runner 8 --use-layernorm --activation-fn leakyrelu --checkpoint-freq 100 --checkpoint-at-end --restore-checkpoint <path_to_your_final_stage_1_checkpoint_here, or use mine>
  ```
  
 **Run PFSP.** This is, in essence, the full competitive environment. It includes intelligent checkpointing, using [Bradley-Terry](https://en.wikipedia.org/wiki/Bradley%E2%80%93Terry_model) score to evaluate agent skill.
  ```
  python run_training_MA.py --env-config '{"speed": 5.0, "ep_length": 4096, "aug_obs": true, "random_orbit_prob": 0.75, "stochastic_hspace": true}' --verbose 1 --batch-size 65536 --minibatch-size 8192 --gamma .999 --attn-dim 128 --attn-ff-dim 1024 --lr 3e-5 --lambda_ .8 --vf-clip 40 --stop-iters=4000 --num-env-runners 40 --envs-per-env-runner 8 --use-layernorm --activation-fn leakyrelu --pfsp --steps-to-clone 50 --add-v0 --restore-checkpoint <path_to_your_final_stage_2_checkpoint_here, or use mine> --checkpoint-freq 100 --checkpoint-at-end --identity-aug --iters-to-warmup-new 25
+ ```
+ 
+ **Evaluate your agents.** You can assess agents' Bradley-Terry ratings using `agent_comparison/BradleyTerry_rllib.py`. You can also visualize your agents' behavior, and play against them yourself, using `launch_game_MA.py`
+ 
+ ```
+ python -m agent_comparison.BradleyTerry_rllib --env-config '{"speed": 5.0, "ep_length": 4096, "aug_obs": true, "stochastic_hspace": true}' --attn-dim 128 --attn-ff-dim 1024  --use-layernorm --activation-fn leakyrelu --envs-per-env-runner 4 --evaluation-duration 1000 --eval-batch-size 200 --evaluation-num-env-runners 40 --agent-folder <folder_containing_agent_checkpoints_here>
+ ```
+ 
+ ```
+ python launch_game_MA.py SW_1v1_env --env-config '{"speed": 5.0, "ep_length": 4096, "aug_obs": true, "stochastic_hspace": true}' --ckpt-path <path_to_your_pfsp_checkpoint_here>
  ```
  
  ## Some things I learned that worked
@@ -40,10 +50,11 @@ The aim of this repository is to demonstrate the subtleties of practical reinfor
   
   - Curriculum learning is great, but don't overdo it. Stage 1 training resulted in much better performance in stage 2 than even a very generous stage-2-only training run, but a gradual shift in the environment's dynamics only confused earlier models. 
         - **Remember:** the point of curriculum learning is to make sure the agent always has an environment that's easy enough for winning to be a possibility. You don't need to micromanage it, especially when that involves changing the core mechanics.
+        - A natural curriculum is ideal. For example, our single-agent environment repeatedly respawns the target, preserving the agent's location, heading, and resources, after the agent succeeds in hitting it. This proved crucial for teaching proper resource conservation.
    
   - Consider your skill evaluation algorithm. Many methods make affordances for human behavior that aren't needed here, and end up being counterproductive. Bradley-Terry is my personal favorite for ease of use and lack of assumptions. It'll always converge to a neat set of scores, while methods like Elo won't do so.
   
-  - Pure self-play is well below optimal, at least when working with PPO agents. It's unstable You want [PFSP], at the very least.
+  - Pure self-play is well below optimal, at least when working with PPO agents. It's unstable; you want [PFSP](https://deepmind.google/blog/alphastar-grandmaster-level-in-starcraft-ii-using-multi-agent-reinforcement-learning/), at the very least. Including a 50% pure self-play ratio, as AlphaStar did when no exploiters were ready for use, helped substantially with performance.
  
  ## Some things I implemented that didn't end up helping
  
@@ -68,6 +79,8 @@ The aim of this repository is to demonstrate the subtleties of practical reinfor
   
   - **Can you get something useful out of autoresearch?** LLMs are improving all the time, as is the infrastructure to use them, so if you're reading this in 2027, there's a good chance you can run my code out of the box and get better results.
         - Or maybe I was doing it wrong, and you've got a better prompt. Either way!
+        
+  - **I'm certain there's something to be learned about performance when agent identities are conveyed to the critic**. [MADDPG](https://arxiv.org/abs/1706.02275) famously discussed the value of stabilizing learning by providing other agents' policy information to the critic. I've implemented something *(very)* broadly similar under PPO in this repository, but I don't have the compute budget to robustly evaluate how helpful it is.
   
 Certainly fork this repo if you want to run further experiments. I'd be glad to hear about any useful techniques that I missed in my explorations.
 
