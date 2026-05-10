@@ -115,7 +115,7 @@ while run:
         if (agent_control >= 1): # If we're running an agent
             ks = sorted(list(a.keys()))
             for i in range(agent_control%2, len(ks)):
-                a[ks[i]] = query_model(agent, o[ks[i]], env, env.action_spaces[ks[i]])
+                a[ks[i]] = query_model(agent, o[ks[i]], env.action_spaces[ks[i]])
         o, r, term, trunc, _ = env.step(a)
         for k, v in r.items():
             total_rewards[k] += v

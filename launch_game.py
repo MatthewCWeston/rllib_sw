@@ -111,7 +111,7 @@ while run:
                 a[x[0]] = 0
     if ((done or paused) == False):
         if (agent_control): # If we're running an agent
-            a = query_model(agent, (o[agent_name] if ma_env else o), env, action_space)
+            a = query_model(agent, (o[agent_name] if ma_env else o), action_space)
         if ma_env:
             o, r, term, trunc, _ = env.step({agent_name: a})
             r = r[agent_name]

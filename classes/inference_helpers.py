@@ -28,7 +28,7 @@ def obs_to_tensor(obs):
           obs = obs.float().unsqueeze(0) # for non-Discrete observations
         return obs
 
-def query_model(agent, obs, env, action_space):
+def query_model(agent, obs, action_space):
     # Model expects a vector instead of a dictionary
     obs = obs_to_tensor(obs)
     input_dict = {Columns.OBS: obs}

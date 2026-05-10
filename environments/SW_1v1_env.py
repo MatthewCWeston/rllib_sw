@@ -115,8 +115,8 @@ class SW_1v1_env(MultiAgentEnv):
             self.random_orbits()
         else:
             self.playerShips = [
-                Ship(np.array([-.5, -.5]) * WRAP_BOUND, 90., stochastic_hspace=self.stochastic_hspace),
-                Ship(np.array([.5, .5]) * WRAP_BOUND, 270., stochastic_hspace=self.stochastic_hspace)
+                Ship(np.array([-.5, -.5]) * WRAP_BOUND, 0., stochastic_hspace=self.stochastic_hspace),
+                Ship(np.array([.5, .5]) * WRAP_BOUND, 180., stochastic_hspace=self.stochastic_hspace)
             ]
         return self.get_obs(), {}
         
