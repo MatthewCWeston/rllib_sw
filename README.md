@@ -8,7 +8,7 @@ The aim of this repository is to demonstrate the subtleties of practical reinfor
  - Long episodes (800 steps in the settings used)
  - Variable-length observations composed of multiple types of object. *(And no, we won't cheat by feeding screenshots into a ConvNet - we're using a Transformer.)*
  
- Environment settings, to the best of my ability, have fidelity to the authentic `SPACEWAR!` implementation available at https://www.masswerk.at/spacewar/. I'd be honored if one of the greats would give my agent a shot.
+ Environment settings, to the best of my ability, have fidelity to the authentic `SPACEWAR!` implementation available at https://www.masswerk.at/spacewar/. I'd be honored if one of the greats would give my agent a shot. An ONNX export of the final model is available at https://matthewcweston.github.io/.
  
  ## How to use this repository
  
