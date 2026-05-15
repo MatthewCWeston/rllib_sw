@@ -130,7 +130,7 @@ class Ship():
                             self.vel = np.array([0,0])
                             return
                         else:
-                            self.pos = rng.uniform(0, WRAP_BOUND, size=(2,))
+                            self.pos = rng.uniform(-WRAP_BOUND, WRAP_BOUND, size=(2,))
                             vel_ang = rng.uniform(0,2*np.pi)
                             self.vel = rng.uniform(0, S_HSPACE_MAXSPEED) * np.array([np.cos(vel_ang), -np.sin(vel_ang)])
                             self.ang = rng.uniform(0,360)
