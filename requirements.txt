@@ -5,7 +5,7 @@ gymnasium==1.2.2
 dm_tree 
 fsspec 
 pandas==2.2.3
-pyarrow==14.0.2 
+pyarrow
 numpy==1.26.4 
 scipy 
 lz4 

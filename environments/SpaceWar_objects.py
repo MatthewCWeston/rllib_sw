@@ -122,7 +122,7 @@ class Ship():
                     if (self.stochastic_hspace==False):
                         # Deterministic hyperspace implementation
                         self.vel *= -1
-                        self.pos *= -1
+                        self.pos *= -1 * (self.h_charges / HYPERSPACE_CHARGES) # Distance decays more with each use.
                         self.ang += 180
                     else:
                         if (rng.uniform() > self.h_charges / HYPERSPACE_CHARGES): # Chance of catastrophic failure
