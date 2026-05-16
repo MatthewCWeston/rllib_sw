@@ -185,7 +185,7 @@ class SW_1v1_env_singleplayer(MultiAgentEnv):
             self.target_speed = np.clip(self.true_target_speed + self.rng.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
             self.target_ammo = np.clip(self.true_target_ammo + self.rng.normal(0,0.1), 0, 1)       # [0,1], sd of 0.1
         self.playerShips = [
-            Ship(np.array([-.5, -.5]) * WRAP_BOUND, 90., stochastic_hspace=self.stochastic_hspace),
+            Ship(np.array([-.5, -.5]) * WRAP_BOUND, 0., stochastic_hspace=self.stochastic_hspace),
             Dummy_Ship(np.array([0.,0.]),0.,PLAYER_SIZE*self.size_multiplier)
         ]
         if (self.randomize_ammo):
