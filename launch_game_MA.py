@@ -25,7 +25,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("env-name", type=str, help="Name of the environment")
 parser.add_argument("--env-config", type=json.loads, default={})
 parser.add_argument("--ckpt-path", type=str, default=None, help="Path to checkpoint file, if applicable")
-parser.add_argument("--ckpt-name", type=str, default="main")
+
 args = parser.parse_args()
 cfg = args.env_config
 

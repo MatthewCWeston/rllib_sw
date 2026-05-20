@@ -258,7 +258,7 @@ class PFSPCallback(RLlibCallback):
         win_ar = build_wins(self.league, self.win_counts)
         bt_dict = get_BT_skill(self.league, win_ar)
         for k, v in bt_dict.items():
-            algorithm.metrics.log_value(("BradleyTerry", k), v)
+            algorithm.metrics.log_value(("BradleyTerry", k), v, ema_coeff=1.0) # No smoothing, since it's already smoothed
         bt_dict = algorithm.metrics.peek("BradleyTerry")
         print_elo_table(bt_dict)
         # Clone the agent if it's doing better than when it was last cloned or if it's beating the rest of the league
