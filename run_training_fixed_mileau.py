@@ -36,6 +36,7 @@ from ray.rllib.utils.metrics import (
 from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
+from classes.hash_episode import hash_episode
 from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
 from callbacks.pfsp_callback import MAIN_MODULE, MAX_OPPONENTS
 
@@ -137,7 +138,7 @@ def atm_fn(agent_id, episode, **kwargs): # Select a random opponent
 	if (agent_id == 0):
 		return MAIN_MODULE
 	else:
-		eid = abs(hash(episode.id_))
+		eid = hash_episode(episode)
 		return opponents[eid%len(opponents)]
 
 lrelu_override = args.activation_fn=="leakyrelu"

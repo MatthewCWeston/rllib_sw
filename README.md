@@ -10,6 +10,26 @@ The aim of this repository is to demonstrate the subtleties of practical reinfor
  
  Environment settings, to the best of my ability, have fidelity to the authentic `SPACEWAR!` implementation available at https://www.masswerk.at/spacewar/. I'd be honored if one of the greats would give my agent a shot. An ONNX export of the final model is available at https://matthewcweston.github.io/.
  
+## SPACEWAR! environment
+ 
+### Observation Space — `Dict`
+
+| Key | Shape | Contents |
+|---|---|---|
+| `self` | `Box: (11,)` | star pos (2), velocity (2), edge raycasts (2), missiles, reload, fuel, h-charges, h-cooldown |
+| `opponent` | `Box: (11,)` | rel. position (2), velocity (2), facing-unit-vector (2), missiles, reload, fuel, h-charges, h-cooldown |
+| `missiles_friendly` | `Repeated (Box)`: `[0..NUM_MISSILES] × (5,)` | position (2), velocity (2), life |
+| `missiles_hostile` | `Repeated (Box)`: `[0..NUM_MISSILES]  × (5,)` | position (2), velocity (2), life |
+ 
+### Action Space — `MultiDiscrete([2, 3, 2, 2])`
+
+| Index | Name | Values | Effect |
+|:-:|---|---|---|
+| 0 | Thrust | 0, 1 | NOP / Fire main engine, if `fuel > 0` |
+| 1 | Turn | 0, 1, 2 | NOP / CCW / CW |
+| 2 | Shoot | 0, 1 | NOP / Fire missile, if `missiles > 0 and reload == 0` |
+| 3 | Hyperspace | 0, 1 | NOP / Hyperspace jump, if `h-charges > 0 and h-cooldown == 0` |
+ 
  ## How to use this repository
  
  If you want to train a `SPACEWAR!` agent, run the following three commands in sequence:

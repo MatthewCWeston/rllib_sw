@@ -146,7 +146,7 @@ class SW_1v1_env(MultiAgentEnv):
         for _ in range(self.repeats):
             self.update(actions)
             # Early stop when both participants run out of ammo, but only when we're already messing with env initialization for training purposes
-            truncated = (self.time >= self.maxTime) or ((len(self.missiles[0]) + len(self.missiles[1]) == 0) and (self.playerShips[0].stored_missiles == 0) and (self.playerShips[0].stored_missiles == 0) and (self.random_orbit_prob > 0))
+            truncated = (self.time >= self.maxTime) or ((len(self.missiles[0]) + len(self.missiles[1]) == 0) and (self.playerShips[0].stored_missiles == 0) and (self.playerShips[1].stored_missiles == 0) and (self.random_orbit_prob > 0))
             if (self.terminated or truncated):
                 break
         return self.get_obs(), self.rewards, {"__all__": self.terminated}, {"__all__": truncated}, {}

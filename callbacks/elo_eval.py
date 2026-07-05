@@ -3,7 +3,6 @@ import numpy as np
 import copy
 import os
 from pathlib import Path
-from tabulate import tabulate
 
 from typing import List, Tuple
 from ray.rllib.utils.typing import ResultDict
@@ -35,8 +34,12 @@ from ray.rllib.utils.metrics import (
     ENV_RUNNER_RESULTS,
     EVALUATION_RESULTS,
 )
+
+from agent_comparison.print_score_table import print_score_table
+from callbacks.pfsp_callback import hash_episode
+
 def get_opponent(episode_id, opponents, weights):
-  rng = np.random.default_rng(np.abs(hash(episode_id)))
+  rng = np.random.default_rng(hash_episode(eid=episode_id))
   return rng.choice(opponents, p=weights)
 
 # Special sample implementation that loads a random opponent every epoch
@@ -300,14 +303,6 @@ def get_weights(algorithm, opponents, main_agent_name):
   weights /= weights.sum()
   return weights
 
-def print_elo_table(elo):
-  sorted_keys, v = sorted([k for k in elo.keys()]), list(elo.values())
-  min_elo, max_elo = np.min(v)-1e-6, np.max(v)
-  gap = max_elo - min_elo
-  table_data = [[k, f'\033[38;2;{int(255*min(1, 2*(1-(elo[k]-min_elo)/gap)))};{int(255*min(1, 2*(elo[k]-min_elo)/gap))};0m{elo[k]}\033[0m'] for k in sorted_keys]
-  floatfmt = ".0f" if max_elo > 1000 else ".3f"
-  print(tabulate(table_data, headers=["Checkpoint", "Rating"], tablefmt='rounded_outline', floatfmt=floatfmt))
-
 def elo_eval_fn(
     algorithm: Algorithm,
     eval_workers: EnvRunnerGroup,
@@ -350,7 +345,7 @@ def elo_eval_fn(
     # Sampled episodes will have (opponent, opponent_won) tuples in their auxiliary data. Update the ELO ratings accordingly.
     if (checkpoint_list):
       update_elo(algorithm, sampled_episodes, main_agent_name)
-      print_elo_table(algorithm.metrics.peek("ELO"))
+      print_score_table(algorithm.metrics.peek("ELO"))
     return eval_results, env_steps, agent_steps
     
 # TODO: Consider using _evaluate_with_auto_duration as a template for our custom evaluation function.

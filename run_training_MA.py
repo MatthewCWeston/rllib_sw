@@ -34,6 +34,7 @@ from ray.rllib.utils.metrics import (
 from classes.attention_encoder import AttentionPPOCatalog
 from classes.run_tune_training import run_tune_training
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
+from classes.hash_episode import hash_episode
 from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
 from callbacks.pfsp_callback import MAIN_MODULE, MAIN_EXPLOITER, MAX_OPPONENTS
 
@@ -160,7 +161,7 @@ if (args.add_v0):
         if (agent_id==0):
             return MAIN_MODULE
         else:
-            eid = abs(hash(episode.id_))
+            eid = hash_episode(episode)
             o_list = opponents + [v0_name]
             return o_list[eid%len(o_list)]
 else:

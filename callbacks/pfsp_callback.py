@@ -20,8 +20,9 @@ from ray.rllib.core import (
 )
 
 from agent_comparison.BradleyTerry_rllib import get_BT_skill
-from callbacks.elo_eval import print_elo_table
+from agent_comparison.print_score_table import print_score_table
 from callbacks.augment_critic_with_id import OPPONENT_ID
+from classes.hash_episode import hash_episode
 
 MAIN_MODULE = 'my_policy'
 MAIN_EXPLOITER = 'main_exploiter'
@@ -32,7 +33,7 @@ MAX_OPPONENTS = 200
 def get_learning_agent(episode, policies_to_train):
   # Returns the agent (X or O) and the ID of the 'student' policy
   len_policies = len(policies_to_train)
-  eid = hash(episode.id_) % (2*len_policies)
+  eid = hash_episode(episode) % (2*len_policies)
   agent_id = 1 if eid < len_policies else 0
   policy_id = policies_to_train[eid%len_policies]
   return agent_id, policy_id
@@ -66,7 +67,7 @@ def create_atm_fn(agent_names, wr, just_added):
             episode,
             APFSP_MODULES if MAIN_EXPLOITER in agent_names else [MAIN_MODULE],
         )
-        eid = abs(hash(episode.id_))
+        eid = hash_episode(episode)
         rng = np.random.default_rng(seed=eid)
         if (agent_id==student_agent):
             return student_policy
@@ -258,9 +259,9 @@ class PFSPCallback(RLlibCallback):
         win_ar = build_wins(self.league, self.win_counts)
         bt_dict = get_BT_skill(self.league, win_ar)
         for k, v in bt_dict.items():
-            algorithm.metrics.log_value(("BradleyTerry", k), v)
+            algorithm.metrics.log_value(("BradleyTerry", k), v, ema_coeff=1.0) # No smoothing, since it's already smoothed
         bt_dict = algorithm.metrics.peek("BradleyTerry")
-        print_elo_table(bt_dict)
+        print_score_table(bt_dict)
         # Clone the agent if it's doing better than when it was last cloned or if it's beating the rest of the league
         if (len(self.league) < MAX_OPPONENTS) and ((iter)%(self.clone_every+self.warmup)==0):
             to_clone = set()

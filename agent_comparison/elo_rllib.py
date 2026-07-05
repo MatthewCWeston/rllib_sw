@@ -26,10 +26,11 @@ from ray.rllib.utils.metrics import (
     EVALUATION_RESULTS
 )
 
+from agent_comparison.print_score_table import print_score_table
 from classes.attention_encoder import AttentionPPOCatalog
+from classes.hash_episode import hash_episode
 from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
-from callbacks.elo_eval import get_elo_rating, push_elo_rating, print_elo_table # import carryover components
-
+from callbacks.elo_eval import get_elo_rating, push_elo_rating # import carryover components
 from environments.SW_1v1_env import SW_1v1_env
 
 # ==== Custom Evaluation Function ==== #
@@ -39,7 +40,7 @@ def create_atm_fn(agent_names, w):
     ''' agent_names is a list of all league agents' names.
     w is a dictionary mapping each agent's name to its opponent probabilities. '''
     def atm_fn(agent_id, episode, **kwargs):
-        eid = abs(hash(episode.id_))
+        eid = hash_episode(episode)
         agent_ix = eid%len(agent_names)
         first = agent_names[agent_ix]
         if (agent_id==0): # For the first agent, pick randomly
@@ -120,7 +121,7 @@ def elo_eval_fn(
         elo_dict[l_module][1] -= adj
     for o, (old, new) in elo_dict.items():
         push_elo_rating(algorithm, o, old, new)
-    print_elo_table(algorithm.metrics.peek("ELO"))
+    print_score_table(algorithm.metrics.peek("ELO"))
     return eval_results, env_steps, agent_steps
 
 # ====       Main Code Body       ==== #

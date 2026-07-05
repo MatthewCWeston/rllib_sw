@@ -26,9 +26,10 @@ from ray.rllib.utils.metrics import (
     EVALUATION_RESULTS
 )
 
+from agent_comparison.print_score_table import print_score_table
 from classes.attention_encoder import AttentionPPOCatalog
+from classes.hash_episode import hash_episode
 from callbacks.checkpoint_restore_callback import LoadOnAlgoInitCallback
-from callbacks.elo_eval import print_elo_table # import carryover components
 
 from environments.SW_1v1_env import SW_1v1_env
 
@@ -39,7 +40,7 @@ def create_atm_fn(module_list, w):
     ''' module_list is a list of all league agents' names.
     w is a dictionary mapping each module's name to its opponent probabilities. '''
     def atm_fn(agent_id, episode, **kwargs):
-        eid = abs(hash(episode.id_))
+        eid = hash_episode(episode)
         module_ix = eid%len(module_list)
         first = module_list[module_ix]
         if (agent_id==0): # For the first agent, pick randomly
@@ -131,7 +132,7 @@ def elo_eval_fn(
             algorithm.metrics.log_value(("WIN_COUNTS", a1, a2), c, reduce="lifetime_sum")
     wcs = get_win_counts(algorithm, module_list) # Load updated WRs into a dict
     skills = get_BT_skill(module_list, wcs)
-    print_elo_table(skills)
+    print_score_table(skills)
     for k, v in skills.items():
         algorithm.metrics.log_value(("BradleyTerry", k), v)
     return eval_results, env_steps, agent_steps

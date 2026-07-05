@@ -171,11 +171,10 @@ class Ship():
             ego=None, # The Ship associated with the observing agent
             aug=False,# Should we augment the observations with some engineered features?
             ):
-        # pos, vel, angle unit vector, ammo remaining
+        # Information represented as individual floating point values
+        float_obs = [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME, self.fuel / SHIP_FUEL, self.h_charges / HYPERSPACE_CHARGES, self.h_reload / HYPERSPACE_RECHARGE]
         if (ego is None):
-            return np.concatenate([self.pos, self.vel, self.angUV, 
-            [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME]
-            ])
+            return np.concatenate([self.pos, self.vel, self.angUV, float_obs])
         else:
             # Self: [star, vel, to_edges, missiles, reload time]
             # Other: [pos (relative to self), vel (rotated to self), auv (rotated to self), missiles, reload time]
@@ -192,9 +191,7 @@ class Ship():
                 ang_to_observer = np.arctan2(p[0],p[1]) * 180/np.pi
                 auv = rotate_pt(self.angUV, -ang_to_observer) # Gets the 'bearing' of the observer in the eyes of this ship
             v = rotate_pt(self.vel, -ego.ang) # Rotate velocity w/r to removing ego's angle
-            obs = np.concatenate([p, v, auv, 
-                [self.stored_missiles / NUM_MISSILES, self.reloadTime / MISSILE_RELOAD_TIME, self.fuel / SHIP_FUEL, self.h_charges / HYPERSPACE_CHARGES, self.h_reload / HYPERSPACE_RECHARGE]
-            ])
+            obs = np.concatenate([p, v, auv, float_obs])
             if (aug):
                 star_dist = np.linalg.norm(self.pos) # Wrap bound permits a maximum of 1 distance from star
                 star_anguv = -self.pos/max(star_dist,1e-6) # Angular unit vector of the direction to the star
