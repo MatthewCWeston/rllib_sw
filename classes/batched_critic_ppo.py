@@ -50,6 +50,8 @@ from ray.rllib.utils.postprocessing.zero_padding import (
 )
 from ray.rllib.utils.typing import EpisodeType
 
+from classes.obs_norm import ObsNorm
+
 class BatchedCriticPPOLearner(PPOTorchLearner):
     @override(Learner)
     def build(self) -> None:
@@ -207,6 +209,14 @@ class BatchedCriticPPOLearner(PPOTorchLearner):
         )
         # Return the total loss.
         return total_loss
+        
+    @override(Learner)
+    def after_gradient_based_update(self, *, timesteps): # Handle observation normalization (update after weight updates)
+        super().after_gradient_based_update(timesteps=timesteps)
+        for mid in self.module.keys():
+            for m in self.module[mid].modules():
+                if isinstance(m, ObsNorm):
+                    m.commit() if self.should_module_be_updated(mid) else m.pending.clear()
           
 def batch_dict(m_in, s, mb_size):
     ''' Take a dictionary, start position, and batch size, and return a batch. '''

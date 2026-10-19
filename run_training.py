@@ -31,7 +31,7 @@ from ray.rllib.utils.metrics import (
     NUM_ENV_STEPS_SAMPLED_LIFETIME,
 )
 
-from classes.attention_encoder import AttentionPPOCatalog, MEAN_POOL, MAX_POOL, CLS_TOKEN
+from classes.attention_encoder import AttentionPPOCatalog, DeterministicTorchModule, MEAN_POOL, MAX_POOL, CLS_TOKEN
 from classes.run_tune_training import run_tune_training
 from classes.curiosity import add_curiosity
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
@@ -86,6 +86,7 @@ parser.add_argument("--dropout", type=float, default=0.1) # In theory, this shou
 parser.add_argument("--pool-operation", type=str, # Pooling operation after transformer encoder
     choices=[MEAN_POOL, MAX_POOL, CLS_TOKEN], default=MEAN_POOL)
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
+parser.add_argument('--obs-norm', action='store_true')
 parser.add_argument("--activation-fn", type=str, default='relu') # Activation function for the network head.
 parser.add_argument('--use-layernorm', action='store_true') # Use the norm
 parser.add_argument("--batch-size", type=int, default=32768)
@@ -117,7 +118,7 @@ register_env("env", lambda cfg: target_env(cfg))
 
 # Are we using EPPO (to help with curriculum learning)?
 catalog_class = AttentionEPPOCatalog if (args.use_eppo) else AttentionPPOCatalog
-module_class = EPPOTorchRLModule if (args.use_eppo) else DefaultPPOTorchRLModule
+module_class = EPPOTorchRLModule if (args.use_eppo) else DeterministicTorchModule
 learner_class = EPPOTorchLearner if (args.use_eppo) else BatchedCriticPPOLearner # EPPO ignores cold start
 
 # Configure run
@@ -202,6 +203,7 @@ if (not args.no_custom_arch):
                 "vf_share_layers": args.share_layers,
                 "head_fcnet_use_layernorm": args.use_layernorm,
                 "pool_operation": args.pool_operation,
+                "normalize_observations": args.obs_norm,
             },
         )
     }

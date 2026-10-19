@@ -177,7 +177,7 @@ class Ship():
             return np.concatenate([self.pos, self.vel, self.angUV, float_obs])
         else:
             # Self: [star, vel, to_edges, missiles, reload time]
-            # Other: [pos (relative to self), vel (rotated to self), auv (rotated to self), missiles, reload time]
+            # Other: [pos (relative to ego), vel (rotated to ego), auv (deviation from direction to ego), missiles, reload time]
             # We want to augment observations.
             # All: Radial and tangential velocity WRT star, distance to star, speed
             # Other: XY to star (rotated to self), bearing, distance to observer, closing speed to observer
@@ -185,11 +185,10 @@ class Ship():
                 p = rotate_pt(-self.pos, -ego.ang) # Location of star, adjusted for angle
                 auv = get_raycasts(self.pos, self.ang) # Raycasts to arena boundary
             else:
-                p = ego_pt(self.pos, ego)
-                #auv = rotate_pt(self.angUV, -ego.ang) 
+                p = ego_pt(self.pos, ego) # Project this ship's location into the observer's egocentric coordinate system
                 # AngUV rotated by -angle of p, not by observer's facing
-                ang_to_observer = np.arctan2(p[0],p[1]) * 180/np.pi
-                auv = rotate_pt(self.angUV, -ang_to_observer) # Gets the 'bearing' of the observer in the eyes of this ship
+                ang_to_observer = np.arctan2(p[0],p[1]) * 180/np.pi # Get the (ego) angle b/t our location and the observer's
+                auv = rotate_pt(self.angUV,  -ego.ang - ang_to_observer) # Convert self.angUV to the egocentric perspective and then subtract the angle to the observer.
             v = rotate_pt(self.vel, -ego.ang) # Rotate velocity w/r to removing ego's angle
             obs = np.concatenate([p, v, auv, float_obs])
             if (aug):

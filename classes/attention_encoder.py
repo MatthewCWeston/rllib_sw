@@ -1,6 +1,7 @@
 """
 This file implements a self-attention Encoder (see https://arxiv.org/abs/1909.07528) for handling variable-length Repeated observation spaces. It expects a Dict observation space with Discrete, Box, or Repeated (of Discrete or Box) subspaces.
 """
+from ray.rllib.algorithms.ppo.torch.default_ppo_torch_rl_module import DefaultPPOTorchRLModule
 from ray.rllib.algorithms.ppo.ppo_catalog import PPOCatalog
 from ray.rllib.core.models.torch.base import TorchModel
 from ray.rllib.core.models.base import ActorCriticEncoder, Encoder, ENCODER_OUT
@@ -11,10 +12,13 @@ from ray.rllib.core.columns import Columns
 import gymnasium as gym
 from gymnasium.spaces import Discrete, Box
 from classes.repeated_space import RepeatedCustom
+from classes.obs_norm import ObsNorm
 
 import torch
 from torch import nn
 import torch.nn.functional as F
+
+import math
 
 CRITIC_ONLY = "CRITIC_ONLY" # Environment dynamics that the actor encoder should discard
 SELF = "self" # Serves as our CLS token where applicable
@@ -22,6 +26,29 @@ SELF = "self" # Serves as our CLS token where applicable
 MEAN_POOL = 'mean'
 MAX_POOL = 'max'
 CLS_TOKEN = 'cls'
+
+DROPOUT_SEED = "dropout_seed"
+
+def seeded_dropout(x, ids, p=0, seeds=None):
+    """A dropout function that takes a stepwise seed and a set of fixed token IDs, providing dropout masks that are consistent between rollouts and probability reconstruction later on."""
+    if seeds is None or p == 0:
+        return x
+    h = seeds.view(-1, *[1] * (x.dim() - 1))
+    for i in (*ids, 0x9E3779B): # Hash every input and then a constant
+        h = (h * 1000003 + i) & 0x7FFFFFFF
+        h = (h ^ (h >> 13)) * 0x5BD1E995 & 0x7FFFFFFF
+        h = h ^ (h >> 15)
+    return x * ((h & 0xFFFFFF) >= p * 2 ** 24) / (1 - p)
+    
+class DeterministicTorchModule(DefaultPPOTorchRLModule):
+    """Stores a fixed seed at each step when conducting rollouts. Useful for consistent dropout masking."""
+    def _forward_exploration(self, batch, **kwargs):
+        obs = batch[Columns.OBS]
+        n = (next(iter(obs.values())) if isinstance(obs, dict) else obs).shape[0]
+        seeds = torch.randint(0, 0x7FFFFFFF, (n,), device=next(self.parameters()).device)
+        out = super()._forward_exploration({**batch, DROPOUT_SEED: seeds}, **kwargs)
+        out[DROPOUT_SEED] = seeds
+        return out
 
 class SimpleTransformerLayer(nn.Module): # A simple transformer layer implementation
     '''
@@ -40,19 +67,23 @@ class SimpleTransformerLayer(nn.Module): # A simple transformer layer implementa
         self.mha = nn.MultiheadAttention(emb_dim, heads, dropout=dropout, batch_first=True)
         self.norm_attn = torch.nn.LayerNorm(emb_dim)
         self.norm_ff = torch.nn.LayerNorm(emb_dim)
-        self.ff = nn.Sequential(
-            nn.Linear(emb_dim, h_dim),
-            nn.GELU(), # Apparently just plain better than ReLU here.
-            nn.Dropout(dropout),
-            nn.Linear(h_dim, emb_dim),
-            nn.Dropout(dropout),
-        )
-    def forward(self, x, src_key_padding_mask):
-        x_attn, _ = self.mha(x, x, x, key_padding_mask=src_key_padding_mask, need_weights=False)
-        x = self.norm_attn(x_attn + x)
-        x_ff = self.ff(x)
-        x = self.norm_ff(x_ff + x)
-        return x
+        self.l1 = nn.Linear(emb_dim, h_dim)
+        self.l2 = nn.Linear(h_dim, emb_dim)
+    def forward(self, x, src_key_padding_mask, seeds=None, token_ids=None, layer_idx=0):
+        if (seeds is None and self.training):
+            seeds = torch.randint(0, 0x7FFFFFFF, (x.shape[0],), device=x.device)
+        B, L, D = x.shape
+        H, p, t = self.mha.num_heads, self.dropout, token_ids
+        # Normal self-attention, computed here so we can inject our dropout.
+        q, k, v = F.linear(x, self.mha.in_proj_weight, self.mha.in_proj_bias).view(B, L, 3, H, D // H).permute(2, 0, 3, 1, 4)
+        scores = (q @ k.transpose(-2, -1)) / math.sqrt(D // H)
+        attn = scores.masked_fill(src_key_padding_mask[:, None, None, :], float("-inf")).softmax(-1)
+        attn = seeded_dropout(attn, ids=[layer_idx, 0, torch.arange(H, device=x.device).view(H, 1, 1), t.view(L, 1), t], p=p, seeds=seeds)
+        x = self.norm_attn(self.mha.out_proj((attn @ v).transpose(1, 2).reshape(B, L, D)) + x)
+        # FF -> GELU -> Dropout -> FF -> Dropout
+        x_ff = seeded_dropout(F.gelu(self.l1(x)), ids=[layer_idx, 1, t.view(L, 1), torch.arange(self.l1.out_features, device=x.device)], p=p, seeds=seeds)
+        x_ff = seeded_dropout(self.l2(x_ff), ids=[layer_idx, 2, t.view(L, 1), torch.arange(D, device=x.device)], p=p, seeds=seeds)
+        return self.norm_ff(x_ff + x)
 
 class GatedTransformerLayer(SimpleTransformerLayer): # A simplified transformer layer
     '''
@@ -66,13 +97,13 @@ class GatedTransformerLayer(SimpleTransformerLayer): # A simplified transformer 
         nn.init.xavier_uniform_(self.gate_ff.weight)
         nn.init.constant_(self.gate_attn.bias, -2.0) # Start with identity function, since we add sigmoid of output
         nn.init.constant_(self.gate_ff.bias, -2.0)
-    def forward(self, x, src_key_padding_mask):
+    def forward(self, x, src_key_padding_mask, **kwargs):
         y = self.norm_attn(x)
         y, _ = self.mha(y, y, y, key_padding_mask=src_key_padding_mask, need_weights=False)
         g = torch.sigmoid(self.gate_attn(torch.cat([x, y], dim=-1)))
         x = g * y + (1 - g) * x # Our gate. Learn to keep only useful outputs from attention layer.
         y = self.norm_ff(x)
-        y = self.ff(y)
+        y = self.l2(F.gelu(self.l1(y)))
         g = torch.sigmoid(self.gate_ff(torch.cat([x, y], dim=-1)))
         x = g * y + (1 - g) * x
         return x
@@ -126,7 +157,13 @@ class AttentionEncoder(TorchModel, Encoder):
                     nn.init.uniform_(embs[n].weight, a=-.01, b=.01)
                 else:
                     raise Exception("Unsupported observation subspace")
-            self.embs = nn.ModuleDict(embs)
+            self.embs = nn.ModuleDict(embs) # Embedding layers are held here
+            self.token_offset, n = {}, 0 # Store fixed token IDs, used for seeding dropout
+            for k, sp in sorted(self.observation_space.spaces.items()):
+                self.token_offset[k], n = n, n + getattr(sp, "max_len", 1)
+            self.obs_norm = None
+            if (config.normalize_observations): # Running normalization of observation attributes
+                self.obs_norm = ObsNorm({n: e.in_features for n, e in embs.items() if isinstance(e, nn.Linear)})
         except Exception as e:
             print("Exception when building AttentionEncoder:")
             print(e)
@@ -137,7 +174,7 @@ class AttentionEncoder(TorchModel, Encoder):
         # The original space we mapped from.
         obs_s = self.observation_space
         embeddings = []
-        masks = []
+        masks, token_ids = [], []
         cls_indices = []
         for i, s in enumerate(obs.keys()):
             if (CRITIC_ONLY in s and (not self.is_critic_encoder)):
@@ -166,15 +203,19 @@ class AttentionEncoder(TorchModel, Encoder):
                 mask = torch.ones((v.shape[0], 1)).to(
                     v.device
                 ) # Fixed elements are always there
+            if (self.obs_norm is not None):
+                v = self.obs_norm(s, v, mask) # Normalize observations
             embedded = self.embs[s](v)
             embeddings.append(embedded)
             masks.append(mask)
+            token_ids.append(self.token_offset[s] + torch.arange(mask.shape[1], device=mask.device))
         # All entities have embeddings. Apply masked residual self-attention and then mean-pool.
         x = torch.concatenate(embeddings, dim=1)  # batch_size, seq_len, unit_size
         mask = torch.concatenate(masks, dim=1)  # batch_size, seq_len
+        seeds = None if self.is_critic_encoder else input_dict.get(DROPOUT_SEED) # Dropout seeds
         for i in range(self.attn_layers):
             layer = self.mha[0] if self.recursive else self.mha[i]
-            x = layer(x, src_key_padding_mask=(1-mask))
+            x = layer(x, src_key_padding_mask=(1-mask).bool(), seeds=seeds, token_ids=torch.cat(token_ids), layer_idx=i)
         # Masked pooling.
         if (self.pool_operation in [MEAN_POOL, MAX_POOL]):
             mask = mask.unsqueeze(dim=2)
@@ -202,6 +243,7 @@ class AttentionEncoderConfig(ModelConfig):
         self.recursive = kwargs["model_config_dict"].get("recursive", False)
         self.dropout = kwargs["model_config_dict"].get("dropout", 0.1)
         self.pool_operation = kwargs["model_config_dict"].get("pool_operation", MEAN_POOL)
+        self.normalize_observations = kwargs["model_config_dict"].get("normalize_observations", False)
         self.output_dims = (self.emb_dim,)
 
     def build(self, framework, is_critic=False):
@@ -354,4 +396,3 @@ class AttentionPPOCatalog(PPOCatalog):
                     new_layers.append(layer)
             vf_head.net.mlp = nn.Sequential(*new_layers)
         return vf_head 
-        

@@ -90,8 +90,8 @@ class SW_1v1_env(MultiAgentEnv):
         vel_2 = -vel_1
         facing_2 = facing_1 + 180
         self.playerShips = [
-            Ship(pos_1, facing_1, vel=vel_1),
-            Ship(pos_2, facing_2, vel=vel_2)
+            Ship(pos_1, facing_1, vel=vel_1, stochastic_hspace=self.stochastic_hspace),
+            Ship(pos_2, facing_2, vel=vel_2, stochastic_hspace=self.stochastic_hspace)
         ]
         stored_missiles = np.ceil(NUM_MISSILES * self.rng.uniform(0.05,1))
         h_charges = np.ceil(HYPERSPACE_CHARGES * self.rng.uniform(0.05,1))

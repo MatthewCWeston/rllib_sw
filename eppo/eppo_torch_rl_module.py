@@ -1,7 +1,7 @@
 import typing
 from typing import Any, Optional
 
-from ray.rllib.core.models.base import ENCODER_OUT
+from ray.rllib.core.models.base import ENCODER_OUT, CRITIC
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import TensorType
@@ -12,12 +12,13 @@ from ray.rllib.algorithms.ppo.torch.default_ppo_torch_rl_module import (
 )
 
 from eppo.attention_eppo_catalog import AttentionEPPOCatalog
+from classes.attention_encoder import DeterministicTorchModule
 
 torch, nn = try_import_torch()
 
 
 @DeveloperAPI
-class EPPOTorchRLModule(DefaultPPOTorchRLModule):
+class EPPOTorchRLModule(DeterministicTorchModule):
     
     @override(DefaultPPOTorchRLModule)
     def __init__(self, *args, **kwargs):

@@ -3,6 +3,7 @@ import sys
 import importlib.util
 import json
 import torch
+import functools
 from functools import partial
 import numpy as np
 from datetime import datetime
@@ -31,7 +32,7 @@ from ray.rllib.utils.metrics import (
     NUM_ENV_STEPS_SAMPLED_LIFETIME,
 )
 
-from classes.attention_encoder import AttentionPPOCatalog
+from classes.attention_encoder import AttentionPPOCatalog, DeterministicTorchModule
 from classes.run_tune_training import run_tune_training
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
 from classes.hash_episode import hash_episode
@@ -56,11 +57,13 @@ parser.add_argument("--dropout", type=float, default=0.1) # In theory, this shou
 parser.add_argument("--activation-fn", type=str, default='relu') # Activation function for the network head.
 parser.add_argument('--use-layernorm', action='store_true') # Use the norm
 parser.add_argument('--fcnet', nargs='+', type=int, default=[256,256]) # Head architecture
+parser.add_argument('--obs-norm', action='store_true')
 # Hyperparameters
 parser.add_argument("--batch-size", type=int, default=32768)
 parser.add_argument("--minibatch-size", type=int, default=4096)
 parser.add_argument("--critic-batch-size", type=int, default=32768)
 parser.add_argument("--lr", type=float, default=1e-6) 
+parser.add_argument("--lr-half-life", type=float) # Train iterations for LR to halve, for exponential decay
 parser.add_argument("--vf-clip", type=str, default='40.0')
 parser.add_argument("--grad-clip", type=float, default=100.0)
 parser.add_argument("--gamma", type=float, default=.999) # Reward discount over time
@@ -74,11 +77,11 @@ parser.add_argument("--add-v0", action="store_true") # Add a v_zero agent, to tr
 parser.add_argument("--no-load-main", action="store_true") # When loading, don't restore the learning module.
 parser.add_argument("--pfsp", action="store_true") # If set, use PFSP instead of SP
 parser.add_argument("--apfsp", action="store_true") # If set, use PFSP with a main exploiter
-parser.add_argument("--steps-to-clone", type=int, default=50) # Clone PFSP agent every K steps
+parser.add_argument("--steps-to-clone", type=int, default=50) # Clone PFSP agent every K iterations
 parser.add_argument("--identity-aug", action="store_true") # Augment the critic with the opposing agent's identity
 parser.add_argument("--opponents-path", type=os.path.abspath) # Folder containing a directory of checkpoints
 # Miscellaneous/logging
-parser.add_argument("--render-every", type=int, default=0) # Every X steps, record a video
+parser.add_argument("--render-every", type=int, default=0) # Every X iterations, record a video
 parser.add_argument("--elo-eval", action="store_true")
 parser.add_argument("--experiment-name", type=str, default="SPACEWAR_multiplayer")
 parser.add_argument("--trial-name", type=str, default=datetime.now().strftime("%m_%d_%Y_%H_%M_%S"))
@@ -172,7 +175,7 @@ lrelu_override = args.activation_fn=="leakyrelu"
 for a in modules + opponents:
     specs[a] = RLModuleSpec(
         catalog_class=AttentionPPOCatalog,
-        #observation_space=obs_space, # Doesn't work when we're using an obs space preprocessor
+        module_class=DeterministicTorchModule,
         action_space=act_space,
         model_config={
             "attention_emb_dim": args.attn_dim,
@@ -186,6 +189,7 @@ for a in modules + opponents:
             "full_transformer": False,
             "recursive": False,
             "dropout": args.dropout,
+            "normalize_observations": args.obs_norm,
         },
     )
         
@@ -262,7 +266,18 @@ config.multi_agent(
     policies_to_train=[MAIN_MODULE] if not args.apfsp else [MAIN_MODULE, MAIN_EXPLOITER], 
 )
 
-
+# Learning rate decay
+if (args.lr_half_life): # Default to exponential lr decay
+    lr_factor = np.e ** (np.log(0.5)/args.lr_half_life)
+    print(f"lr factor (exponential) = {lr_factor}")
+    config.experimental(
+        # Takes a list of learning rate schedulers to be applied in sequence.
+        _torch_lr_scheduler_classes=[
+            functools.partial(
+                torch.optim.lr_scheduler.ExponentialLR, gamma=lr_factor
+            )
+        ]
+    )
 
 # Record matches every K epochs
 if (args.render_every > 0):

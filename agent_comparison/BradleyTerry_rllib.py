@@ -223,6 +223,7 @@ if __name__ == '__main__':
                 "full_transformer": False,
                 "recursive": False,
                 "dropout": args.dropout,
+                "normalize_observations": True, # Defaults to 1x everything, if didn't use during training
             },
         )
         # Callback to load the respective checkpoint into this module on startup
