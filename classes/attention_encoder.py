@@ -19,6 +19,7 @@ from torch import nn
 import torch.nn.functional as F
 
 import math
+import os
 
 CRITIC_ONLY = "CRITIC_ONLY" # Environment dynamics that the actor encoder should discard
 SELF = "self" # Serves as our CLS token where applicable
@@ -29,16 +30,22 @@ CLS_TOKEN = 'cls'
 
 DROPOUT_SEED = "dropout_seed"
 
-def seeded_dropout(x, ids, p=0, seeds=None):
-    """A dropout function that takes a stepwise seed and a set of fixed token IDs, providing dropout masks that are consistent between rollouts and probability reconstruction later on."""
-    if seeds is None or p == 0:
-        return x
+def _seeded_mask_gen(x, ids, p, seeds): # Deterministically generate a dropout mask
     h = seeds.view(-1, *[1] * (x.dim() - 1))
     for i in (*ids, 0x9E3779B): # Hash every input and then a constant
         h = (h * 1000003 + i) & 0x7FFFFFFF
         h = (h ^ (h >> 13)) * 0x5BD1E995 & 0x7FFFFFFF
         h = h ^ (h >> 15)
     return x * ((h & 0xFFFFFF) >= p * 2 ** 24) / (1 - p)
+_seeded_mask_gen_compiled = torch.compile(_seeded_mask_gen, dynamic=True) # Lets the GPU process the whole chain of bitwise operations in a single pass, without a bunch of round trips to memory.
+
+def seeded_dropout(x, ids, p=0, seeds=None):
+    """A dropout function that takes a stepwise seed and a set of fixed token IDs, providing dropout masks that are consistent between rollouts and probability reconstruction later on."""
+    if seeds is None or p == 0:
+        return x
+    h = seeds.view(-1, *[1] * (x.dim() - 1)).to(torch.int32)
+    ids = [i.to(torch.int32) if torch.is_tensor(i) else torch.tensor(i, dtype=torch.int32, device=x.device) for i in ids]
+    return x * _seeded_mask_gen_compiled(h, ids, p) / (1 - p)
     
 class DeterministicTorchModule(DefaultPPOTorchRLModule):
     """Stores a fixed seed at each step when conducting rollouts. Useful for consistent dropout masking."""

@@ -17,7 +17,7 @@ def get_tune_callbacks(args: argparse.Namespace):
         return[WandbLoggerCallback(
                 api_key=args.wandb_key,
                 project=args.wandb_project,
-                upload_checkpoints=True,
+                upload_checkpoints=False,
                 **({"name": args.wandb_run_name} if args.wandb_run_name else {}),
         )]
     return []

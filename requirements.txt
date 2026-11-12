@@ -10,7 +10,7 @@ numpy==1.26.4
 scipy 
 lz4 
 aiohttp_cors 
-torch
+torch==2.8.0
 pygame
 wandb
 # Video recording
