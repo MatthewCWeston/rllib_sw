@@ -76,7 +76,7 @@ class SW_1v1_env(MultiAgentEnv):
         position = np.array([np.cos(p_ang), np.sin(p_ang)]) * r
         dist_zero = (position**2).sum()**.5
         # Set velocity (perpendicular to angle to star)
-        g = GRAV_CONST #/ (position[0]**2 + position[1]**2)
+        g = GRAV_CONST
         r_p = self.rng.uniform(low=max(PLAYER_SIZE*2+STAR_SIZE, r/2), high=r)
         ecc = (r - r_p) / (r + r_p)
         # velocity at apocentre is sqrt((1-e) * GM / ((1+e) * r_a))
