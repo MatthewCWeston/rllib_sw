@@ -31,7 +31,6 @@ CLS_TOKEN = 'cls'
 DROPOUT_SEED = "dropout_seed"
 
 def _seeded_mask_gen(h, ids, p): # Deterministically generate a dropout mask
-    h = seeds.view(-1, *[1] * (x.dim() - 1))
     for i in (*ids, 0x9E3779B): # Hash every input and then a constant
         h = (h * 1000003 + i) & 0x7FFFFFFF
         h = (h ^ (h >> 13)) * 0x5BD1E995 & 0x7FFFFFFF
