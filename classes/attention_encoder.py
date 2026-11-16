@@ -30,13 +30,13 @@ CLS_TOKEN = 'cls'
 
 DROPOUT_SEED = "dropout_seed"
 
-def _seeded_mask_gen(x, ids, p, seeds): # Deterministically generate a dropout mask
+def _seeded_mask_gen(h, ids, p): # Deterministically generate a dropout mask
     h = seeds.view(-1, *[1] * (x.dim() - 1))
     for i in (*ids, 0x9E3779B): # Hash every input and then a constant
         h = (h * 1000003 + i) & 0x7FFFFFFF
         h = (h ^ (h >> 13)) * 0x5BD1E995 & 0x7FFFFFFF
         h = h ^ (h >> 15)
-    return x * ((h & 0xFFFFFF) >= p * 2 ** 24) / (1 - p)
+    return (h & 0xFFFFFF) >= p * 2 ** 24
 _seeded_mask_gen_compiled = torch.compile(_seeded_mask_gen, dynamic=True) # Lets the GPU process the whole chain of bitwise operations in a single pass, without a bunch of round trips to memory.
 
 def seeded_dropout(x, ids, p=0, seeds=None):

@@ -264,10 +264,13 @@ class BatchedGeneralAdvantageEstimation(GeneralAdvantageEstimation):
               # For now, we implement our own minibatching; I'm not sure there's a clean 1:1 match with anything already there.
               if mid in batch and isinstance(module, ValueFunctionAPI):
                   values = []
+                  was_training = module.training
+                  module.eval() # Run the critic deterministically mode when computing values.
                   m_in = batch[mid]
                   for s in range(0, len(m_in[Columns.REWARDS]), self.batch_size):
-                    v_mb = batch_dict(m_in, s, self.batch_size)
-                    values.append(module.compute_values(v_mb))
+                      v_mb = batch_dict(m_in, s, self.batch_size)
+                      values.append(module.compute_values(v_mb))
+                  module.train(was_training)
                   values = torch.hstack(values)
                   return values
               return None

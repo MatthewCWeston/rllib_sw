@@ -14,7 +14,7 @@ class ObsNorm(nn.Module):
         self.clip, self.eps, self.pending = clip, eps, {}
         # Each entity class with Linear embedding layers gets its own normalization here.
         for k, d in obs_space.items():
-            self.register_buffer(f"{k}_count", torch.zeros(()))
+            self.register_buffer(f"{k}_count", torch.zeros(d))
             self.register_buffer(f"{k}_mean", torch.zeros(d))
             self.register_buffer(f"{k}_var", torch.ones(d))
 
@@ -33,9 +33,9 @@ class ObsNorm(nn.Module):
 
     @torch.no_grad()
     def commit(self):
-        for key, new in self.pending.items():
+        for key, (n_new, u_new, var_new) in self.pending.items(): # Count, mean, variance
             count, mean, var = (getattr(self, f"{key}_{s}") for s in ("count", "mean", "var"))
-            n, m, s = _merge((count.double(), mean.double(), var.double() * count.double()), new)
-            if n > 0:
-                count.copy_(n), mean.copy_(m), var.copy_(s / n)
+            active = (count > 0) | (s_new > 1e-12 * n_new) # Account for features that exist in early stages but only vary in later ones. 'active' checks that a feature changes within a batch.
+            n, m, s = _merge((count.double(), mean.double(), var.double() * count.double()), (n_new * active, u_new, var_new))
+            count[live], mean[live], var[live] = n[live].float(), m[live].float(), (s[live] / n[live]).float()
         self.pending = {}
