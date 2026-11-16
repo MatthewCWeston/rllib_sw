@@ -37,5 +37,5 @@ class ObsNorm(nn.Module):
             count, mean, var = (getattr(self, f"{key}_{s}") for s in ("count", "mean", "var"))
             active = (count > 0) | (var_new > 1e-12 * n_new) # Account for features that exist in early stages but only vary in later ones. 'active' checks that a feature changes within a batch.
             n, m, s = _merge((count.double(), mean.double(), var.double() * count.double()), (n_new * active, u_new, var_new))
-            count[live], mean[live], var[live] = n[live].float(), m[live].float(), (s[live] / n[live]).float()
+            count[active], mean[active], var[active] = n[active].float(), m[active].float(), (s[active] / n[active]).float()
         self.pending = {}
