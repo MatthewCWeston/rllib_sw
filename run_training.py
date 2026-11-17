@@ -96,7 +96,8 @@ parser.add_argument("--render-every", type=int, default=0) # Every X steps, reco
 parser.add_argument("--evaluate-every", type=int, default=0) # Every X steps, record the average score at max difficulty
 parser.add_argument("--restore-checkpoint", type=os.path.abspath)
 parser.add_argument("--vf-cold-start", type=int, default=0) # Don't restore value function weights
-parser.add_argument("--use-eppo", action='store_true') # Don't restore value function weights
+parser.add_argument("--no-vf-reset", action="store_true")   # Freeze the actor, but don't discard critic
+parser.add_argument("--use-eppo", action='store_true') # Use a probabilistic critic
 parser.add_argument("--grad-clip", type=float, default=100.0)
 parser.add_argument("--kl-loss", action='store_true')
 parser.add_argument("--entropy-coeff", type=float, default=0.0)
@@ -291,7 +292,7 @@ if (args.restore_checkpoint):
         LoadOnAlgoInitCallback,
         ckpt_path=args.restore_checkpoint,
         module_name=module_id,
-        vf_cold_start=args.vf_cold_start,
+        vf_cold_start=args.vf_cold_start and not args.no_vf_reset,
     ))
 
 # Add spec
