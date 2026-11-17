@@ -48,7 +48,7 @@ The aim of this repository is to demonstrate the subtleties of practical reinfor
  
 **Run PFSP.** This is, in essence, the full competitive environment. It includes intelligent checkpointing, using [Bradley-Terry](https://en.wikipedia.org/wiki/Bradley%E2%80%93Terry_model) score to evaluate agent skill.
  ```
- python run_training_MA.py --env-config '{"speed": 5.0, "ep_length": 4096, "aug_obs": true, "random_orbit_prob": 0.75, "stochastic_hspace": true}' --verbose 1 --batch-size 65536 --minibatch-size 8192 --gamma .999 --attn-dim 128 --attn-ff-dim 1024 --lr 3e-5 --lambda_ .8 --vf-clip 40 --stop-iters=4000 --num-env-runners 40 --envs-per-env-runner 8 --use-layernorm --activation-fn leakyrelu --pfsp --steps-to-clone 50 --add-v0 --restore-checkpoint <path_to_your_final_stage_2_checkpoint_here, or use mine> --checkpoint-freq 100 --checkpoint-at-end --identity-aug --iters-to-warmup-new 25
+ python run_training_MA.py --env-config '{"speed": 5.0, "ep_length": 4096, "aug_obs": true, "random_orbit_prob": 0.75, "stochastic_hspace": true}' --verbose 1 --batch-size 65536 --minibatch-size 8192 --gamma .999 --attn-dim 128 --attn-ff-dim 1024 --lr 3e-5 --lambda_ .8 --vf-clip 40 --stop-iters=4000 --num-env-runners 40 --envs-per-env-runner 8 --use-layernorm --activation-fn leakyrelu --pfsp --steps-to-clone 50 --add-v0 --restore-checkpoint <path_to_your_final_stage_2_checkpoint_here, or use mine> --checkpoint-freq 100 --checkpoint-at-end --identity-aug --vf-cold-start 25000 --no-vf-reset --obs-norm
  ```
  
  **Evaluate your agents.** You can assess agents' Bradley-Terry ratings using `agent_comparison/BradleyTerry_rllib.py`. You can also visualize your agents' behavior, and play against them yourself, using `launch_game_MA.py`
