@@ -169,7 +169,7 @@ class AttentionEncoder(TorchModel, Encoder):
                 self.token_offset[k], n = n, n + getattr(sp, "max_len", 1)
             self.obs_norm = None
             if (config.normalize_observations): # Running normalization of observation attributes
-                self.obs_norm = ObsNorm({n: e.in_features for n, e in embs.items() if isinstance(e, nn.Linear)})
+                self.obs_norm = ObsNorm({n: e for n, e in embs.items() if isinstance(e, nn.Linear)})
         except Exception as e:
             print("Exception when building AttentionEncoder:")
             print(e)
