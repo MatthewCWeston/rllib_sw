@@ -134,7 +134,7 @@ def elo_eval_fn(
     skills = get_BT_skill(module_list, wcs)
     print_score_table(skills)
     for k, v in skills.items():
-        algorithm.metrics.log_value(("BradleyTerry", k), v)
+        algorithm.metrics.log_value(("BradleyTerry", k), v, reduce="item")
     return eval_results, env_steps, agent_steps
 
 # ====       Main Code Body       ==== #
