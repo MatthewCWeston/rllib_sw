@@ -5,6 +5,7 @@ from ray.rllib.core.columns import Columns
 from ray.rllib.core.rl_module.rl_module import RLModule
 from ray.rllib.utils.typing import EpisodeType
 
+import copy
 import numpy as np
 import torch
 
@@ -21,7 +22,8 @@ from ray.rllib.core import (
 
 from agent_comparison.BradleyTerry_rllib import get_BT_skill
 from agent_comparison.print_score_table import print_score_table
-from callbacks.augment_critic_with_id import OPPONENT_ID
+from callbacks.augment_critic_with_id import OPPONENT_ID, OBSERVER_ID
+from classes.shared_critic import SHARED_CRITIC_ID
 from classes.hash_episode import hash_episode
 
 MAIN_MODULE = 'my_policy'
@@ -62,6 +64,7 @@ def pfsp(agent, opponents, wr, rng):
 def create_atm_fn(agent_names, wr, just_added):
     ''' agent_names is a list of all league agents' names.
     wr is a dictionary of win rates '''
+    agent_names, just_added = list(agent_names), list(just_added) # Freeze the lists we use
     def atm_fn(agent_id, episode, **kwargs):
         student_agent, student_policy = get_learning_agent(
             episode,
@@ -96,7 +99,7 @@ def get_mc_string(agent1, agent2):
     return '-'.join(sorted([agent1, agent2]))
 
 class PFSPCallback(RLlibCallback):
-    def __init__(self, league_initial, module_name_to_id=None, clone_every=10, id_aug=False, warmup=0):
+    def __init__(self, league_initial, module_name_to_id=None, clone_every=10, id_aug=False, warmup=0, win_count_decay=0.99):
         super().__init__()
         self.clone_every = clone_every
         self.warmup = warmup # Extra steps to wait the first time around
@@ -105,6 +108,7 @@ class PFSPCallback(RLlibCallback):
         self.league = league_initial
         self.win_counts = defaultdict(lambda: defaultdict(lambda:0))
         self.match_counts = defaultdict(lambda:0)
+        self.win_count_decay = win_count_decay # Decay match statistics by this factor every match.
         # Track previous totals to facilitate stat inheriting
         self.win_counts_t = defaultdict(lambda: defaultdict(lambda:0))
         self.match_counts_t = defaultdict(lambda:0)
@@ -158,12 +162,6 @@ class PFSPCallback(RLlibCallback):
         self.just_added.append(new_module_name)
         self.league.append(new_module_name)
         print(f"adding new opponent to the mix ({new_module_name}).")
-        for opponent in list(self.win_counts[to_clone].keys()): 
-            # Reduce source match and win counts by x10 after cloning, to provide it with a 'fresh start'
-            self.match_counts[get_mc_string(to_clone, opponent)] /= 10
-            self.win_counts[to_clone][opponent] /= 10
-            if (to_clone != opponent): # Avoid double-reduction
-                self.win_counts[opponent][to_clone] /= 10
         # Add the new module
         cloned_module = algorithm.get_module(to_clone)
         algorithm.add_module(
@@ -174,15 +172,17 @@ class PFSPCallback(RLlibCallback):
         # The embedding for the previous ID is copied into the new one whenever an update occurs.
         if (self.id_aug):
             # Main exploiter doesn't need its IDs updated because it only ever plays against main. We do this solely to future-proof.
-            for learning_module_name in [MAIN_MODULE, MAIN_EXPLOITER]:
-                if (learning_module_name not in self.league):
-                    continue
+            for learning_module_name in [MAIN_MODULE, MAIN_EXPLOITER, SHARED_CRITIC_ID]:
+                mm = algorithm.learner_group._learner._module.get(learning_module_name)
+                if (mm is None) or (mm.encoder.critic_encoder is None):
+                    continue # Skip anything that's not present or doesn't have a critic attached
                 mm = algorithm.learner_group._learner._module[learning_module_name]
                 critic_enc = mm.encoder.critic_encoder
-                emb = critic_enc.embs[OPPONENT_ID] # The Embedding module for opponent identity, which we want to update.
                 with torch.no_grad(): # Copy over id value from previous agent
-                    emb.weight[self.module_name_to_id(new_module_name),:] = emb.weight[self.module_name_to_id(prior_version_name),:].clone()
-                    print(f"UPDATED ENCODER EMBEDDING WEIGHTS AT INDEX {self.module_name_to_id(new_module_name)}: {emb.weight.shape} {emb.weight.sum(dim=1)[:5]}")
+                    id_types = [OPPONENT_ID] if learning_module_name != SHARED_CRITIC_ID else [OPPONENT_ID, OBSERVER_ID]
+                    for idt in id_types:
+                        emb = critic_enc.embs[idt]
+                        emb.weight[self.module_name_to_id(new_module_name),:] = emb.weight[self.module_name_to_id(prior_version_name),:].clone()
                 module_updates[learning_module_name] = mm.get_state()
         # Syncs weights across everything
         algorithm.set_state({
@@ -192,6 +192,29 @@ class PFSPCallback(RLlibCallback):
                 }
             },
         })
+        
+    def reset_agent(self, algorithm, src, dst):
+        ''' Resets an agent (typically an exploiter) to main's current weights '''
+        def overwrite_dst(learner):
+            src_m, dst_m = (learner.module[m].unwrapped() for m in (src, dst))
+            dst_m.set_state(src_m.get_state()) # Force an update without waiting an iteration.
+            for (_, o_src), (_, o_dst) in zip(learner.get_optimizers_for_module(src),
+                                              learner.get_optimizers_for_module(dst)):
+                o_dst.load_state_dict(copy.deepcopy(o_src.state_dict()))
+            if SHARED_CRITIC_ID in learner.module: # Let the ID-aware critic know what to expect
+                embs = learner.module[SHARED_CRITIC_ID].unwrapped().encoder.critic_encoder.embs
+                with torch.no_grad():
+                    for idt in (OBSERVER_ID, OPPONENT_ID):
+                        embs[idt].weight[self.module_name_to_id(dst)] = embs[idt].weight[self.module_name_to_id(src)]
+        algorithm.learner_group.foreach_learner(overwrite_dst) # Update learners
+        # Update rollout workers
+        actor = algorithm.learner_group.get_state(
+            components=f"{COMPONENT_LEARNER}/{COMPONENT_RL_MODULE}/{dst}", inference_only=True,
+        )[COMPONENT_LEARNER][COMPONENT_RL_MODULE]
+        algorithm.env_runner_group.foreach_env_runner(lambda er: er.set_state({COMPONENT_RL_MODULE: actor}))
+        # Since we're resetting weights, old win counts are obsolete.
+        self.match_counts[get_mc_string(src, dst)] = 0 
+        self.win_counts[dst][src] = self.win_counts[src][dst] = 0
 
     def build_stats_from_results(self, result):
         league_size = len(self.league)
@@ -209,13 +232,14 @@ class PFSPCallback(RLlibCallback):
                     wcba_total = result.get(f"win_count_{b}{a}", 0)
                     new_matches[k] = mc_total - self.match_counts_t[k]
                     # Update match count tracker
-                    self.match_counts[k] += new_matches[k]
+                    d = self.win_count_decay ** new_matches[k]
+                    self.match_counts[k] = self.match_counts[k] * d + new_matches[k]
                     self.match_counts_t[k] = mc_total # tracks previous result stat
                     # Update win count tracker
-                    self.win_counts[a][b] += wcab_total - self.win_counts_t[a][b]
+                    self.win_counts[a][b] = self.win_counts[a][b] * d + (wcab_total - self.win_counts_t[a][b])
                     self.win_counts_t[a][b] = wcab_total
                     if (a!=b): # Don't double-count wins for self-play
-                        self.win_counts[b][a] += wcba_total - self.win_counts_t[b][a]
+                        self.win_counts[b][a] = self.win_counts[b][a] * d + (wcba_total - self.win_counts_t[b][a])
                         self.win_counts_t[b][a] = wcba_total
                     if (self.match_counts[k] != 0):
                         wrs[a][b] = self.win_counts[a][b] / self.match_counts[k]
@@ -279,5 +303,7 @@ class PFSPCallback(RLlibCallback):
                     print(f'Cloning {MAIN_EXPLOITER} on merit')
             for m in to_clone:
                 self.clone_agent(algorithm, m)
+                if (m==MAIN_EXPLOITER): # Reset the learning exploiter after it's cloned
+                    self.reset_agent(algorithm, MAIN_MODULE, MAIN_EXPLOITER)
         # Update mapping function, reweighting and adding new module if needed
         self.update_atm_fn(algorithm, dict(wrs))

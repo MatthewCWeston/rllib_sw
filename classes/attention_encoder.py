@@ -3,16 +3,20 @@ This file implements a self-attention Encoder (see https://arxiv.org/abs/1909.07
 """
 from ray.rllib.algorithms.ppo.torch.default_ppo_torch_rl_module import DefaultPPOTorchRLModule
 from ray.rllib.algorithms.ppo.ppo_catalog import PPOCatalog
+from ray.rllib.core.columns import Columns
 from ray.rllib.core.models.torch.base import TorchModel
 from ray.rllib.core.models.base import ActorCriticEncoder, Encoder, ENCODER_OUT
 from ray.rllib.core.models.torch.encoder import TorchActorCriticEncoder
 from ray.rllib.core.models.configs import ModelConfig, ActorCriticEncoderConfig
-from ray.rllib.core.columns import Columns
+from ray.rllib.core.rl_module.apis.value_function_api import ValueFunctionAPI
+from ray.rllib.core.rl_module.torch import TorchRLModule
 
 import gymnasium as gym
 from gymnasium.spaces import Discrete, Box
+
 from classes.repeated_space import RepeatedCustom
 from classes.obs_norm import ObsNorm
+from classes.shared_critic import OPPONENT_OBS
 
 import torch
 from torch import nn
@@ -42,12 +46,27 @@ def seeded_dropout(x, ids, p=0, seeds=None):
     """A dropout function that takes a stepwise seed and a set of fixed token IDs, providing dropout masks that are consistent between rollouts and probability reconstruction later on."""
     if seeds is None or p == 0:
         return x
-    h = seeds.view(-1, *[1] * (x.dim() - 1)).to(torch.int32)
-    ids = [i.to(torch.int32) if torch.is_tensor(i) else torch.tensor(i, dtype=torch.int32, device=x.device) for i in ids]
+    h = seeds.view(-1, *[1] * (x.dim() - 1)).to(torch.int64)
+    ids = [i.to(torch.int64) if torch.is_tensor(i) else torch.tensor(i, dtype=torch.int64, device=x.device) for i in ids]
     return x * _seeded_mask_gen_compiled(h, ids, p) / (1 - p)
     
 class DeterministicTorchModule(DefaultPPOTorchRLModule):
     """Stores a fixed seed at each step when conducting rollouts. Useful for consistent dropout masking."""
+    def setup(self):
+        if self.model_config.get("shared_critic"): # Don't build a critic if we've centralized the VF
+            self.catalog.actor_critic_encoder_config.inference_only = True
+        super().setup()
+        if self.model_config.get("shared_critic"):
+            self.vf = None
+
+    def _forward(self, batch, **kwargs): # Run rollouts without the critic encoder (for efficiency)
+         return {Columns.ACTION_DIST_INPUTS: self.pi(self.encoder.actor_encoder(batch)[ENCODER_OUT])}
+         
+    def _forward_train(self, batch, **kwargs):
+        if self.model_config.get("shared_critic"):
+            return self._forward(batch, **kwargs)
+        return super()._forward_train(batch, **kwargs)
+
     def _forward_exploration(self, batch, **kwargs):
         obs = batch[Columns.OBS]
         n = (next(iter(obs.values())) if isinstance(obs, dict) else obs).shape[0]
@@ -150,7 +169,7 @@ class AttentionEncoder(TorchModel, Encoder):
             # Set up embedding layers for each element in our observation
             embs = {}
             for n, s in self.observation_space.spaces.items():
-                if (CRITIC_ONLY in n and (not self.is_critic_encoder)):
+                if (CRITIC_ONLY in n and (not self.is_critic_encoder)) or (n==OPPONENT_OBS):
                     continue # Ignore critic only information
                 if type(s) is RepeatedCustom:
                     s = s.child_space  # embed layer applies to child space
@@ -166,6 +185,8 @@ class AttentionEncoder(TorchModel, Encoder):
             self.embs = nn.ModuleDict(embs) # Embedding layers are held here
             self.token_offset, n = {}, 0 # Store fixed token IDs, used for seeding dropout
             for k, sp in sorted(self.observation_space.spaces.items()):
+                if (k==OPPONENT_OBS):
+                    continue # Opponent observations for symmetric value aren't part of normal observations
                 self.token_offset[k], n = n, n + getattr(sp, "max_len", 1)
             self.obs_norm = None
             if (config.normalize_observations): # Running normalization of observation attributes
@@ -183,7 +204,7 @@ class AttentionEncoder(TorchModel, Encoder):
         masks, token_ids = [], []
         cls_indices = []
         for i, s in enumerate(obs.keys()):
-            if (CRITIC_ONLY in s and (not self.is_critic_encoder)):
+            if (CRITIC_ONLY in s and (not self.is_critic_encoder) or s==OPPONENT_OBS):
                 continue # Ignore critic only information
             if (s == SELF):
                 cls_indices.append(i)

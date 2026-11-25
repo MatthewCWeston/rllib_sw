@@ -51,6 +51,7 @@ from ray.rllib.utils.postprocessing.zero_padding import (
 from ray.rllib.utils.typing import EpisodeType
 
 from classes.obs_norm import ObsNorm
+from classes.shared_critic import SHARED_CRITIC_ID
 
 class BatchedCriticPPOLearner(PPOTorchLearner):
     @override(Learner)
@@ -160,9 +161,12 @@ class BatchedCriticPPOLearner(PPOTorchLearner):
 
         # Compute a value function loss.
         if config.use_critic:
-            value_fn_out = module.compute_values(
-                batch, embeddings=fwd_out.get(Columns.EMBEDDINGS)
-            )
+            if SHARED_CRITIC_ID in self.module:
+                value_fn_out = self.module[SHARED_CRITIC_ID].unwrapped().compute_values(batch)
+            else:
+                value_fn_out = module.compute_values(
+                    batch, embeddings=fwd_out.get(Columns.EMBEDDINGS)
+                )
             vf_loss = torch.pow(value_fn_out - batch[Postprocessing.VALUE_TARGETS], 2.0)
             vf_loss_clipped = torch.clamp(vf_loss, 0, config.vf_clip_param)
             mean_vf_loss = possibly_masked_mean(vf_loss_clipped)
@@ -264,6 +268,8 @@ class BatchedGeneralAdvantageEstimation(GeneralAdvantageEstimation):
               # For now, we implement our own minibatching; I'm not sure there's a clean 1:1 match with anything already there.
               if mid in batch and isinstance(module, ValueFunctionAPI):
                   values = []
+                  if (SHARED_CRITIC_ID in rl_module): # Swap in shared critic, if present
+                      module = rl_module[SHARED_CRITIC_ID]
                   was_training = module.training
                   module.eval() # Run the critic deterministically mode when computing values.
                   m_in = batch[mid]

@@ -33,6 +33,7 @@ from ray.rllib.utils.metrics import (
 )
 
 from classes.attention_encoder import AttentionPPOCatalog, DeterministicTorchModule
+from classes.shared_critic import SharedCriticModule, SHARED_CRITIC_ID
 from classes.run_tune_training import run_tune_training
 from classes.batched_critic_ppo import BatchedCriticPPOLearner
 from classes.hash_episode import hash_episode
@@ -80,6 +81,8 @@ parser.add_argument("--pfsp", action="store_true") # If set, use PFSP instead of
 parser.add_argument("--apfsp", action="store_true") # If set, use PFSP with a main exploiter
 parser.add_argument("--steps-to-clone", type=int, default=50) # Clone PFSP agent every K iterations
 parser.add_argument("--identity-aug", action="store_true") # Augment the critic with the opposing agent's identity
+parser.add_argument("--shared-critic", action="store_true") # All learning agents use same critic
+parser.add_argument("--vf-symmetry", action="store_true") # Adds a prior: V(o) and V(o_opp) sum to zero.
 parser.add_argument("--opponents-path", type=os.path.abspath) # Folder containing a directory of checkpoints
 # Miscellaneous/logging
 parser.add_argument("--render-every", type=int, default=0) # Every X iterations, record a video
@@ -191,6 +194,7 @@ for a in modules + opponents:
             "recursive": False,
             "dropout": args.dropout,
             "normalize_observations": args.obs_norm,
+            "shared_critic": args.shared_critic,
         },
     )
         
@@ -200,6 +204,8 @@ if (args.restore_checkpoint):
     dest_modules = modules.copy()
     if args.no_load_main:
         dest_modules.remove(MAIN_MODULE)
+    if args.shared_critic:
+        dest_modules.append(SHARED_CRITIC_ID) # Shared critic loads the base agent's critic
     callbacks.append(partial(
         LoadOnAlgoInitCallback,
         ckpt_path=args.restore_checkpoint,
@@ -226,9 +232,17 @@ if (args.identity_aug): # Add a unique identity value to the critic's observatio
         else:
             raise Exception(f"{mname} ID not defined")
     print("Adding identity augmentation")
-    config.env_runners(
-        env_to_module_connector=lambda env, spaces, device: [AugmentCriticWithOpponentID(max_opponents=MAX_OPPONENTS, module_name_to_id=module_name_to_id)],
-    )
+    aug = AugmentCriticWithOpponentID(max_opponents=MAX_OPPONENTS, module_name_to_id=module_name_to_id, shared_critic=args.shared_critic, vf_symmetry=args.vf_symmetry)
+    config.env_runners(env_to_module_connector=lambda env, spaces, device: [aug],)
+    if (args.shared_critic): # RLlib wants us to explicitly specify learner-only modules' obs spaces
+        specs[SHARED_CRITIC_ID] = RLModuleSpec(
+            catalog_class=AttentionPPOCatalog,
+            module_class=SharedCriticModule,
+            observation_space=aug.recompute_output_observation_space(env.observation_spaces, None)[agent_id],
+            action_space=act_space,
+            model_config={**specs[MAIN_MODULE].model_config, "vf_symmetry": args.vf_symmetry},
+            learner_only=True,
+        )
 
 # Evaluate under a fixed config demonstrating the hardest conditions
 if (args.elo_eval): 
@@ -261,10 +275,10 @@ elif (args.pfsp or args.apfsp):
         ))
 
 config.multi_agent(
-    policies=modules,
+    policies=modules + ([SHARED_CRITIC_ID] if args.shared_critic else []),
     policy_mapping_fn=atm_fn,
     # Only the learned policy should be trained.
-    policies_to_train=[MAIN_MODULE] if not args.apfsp else [MAIN_MODULE, MAIN_EXPLOITER], 
+    policies_to_train=([MAIN_MODULE] if not args.apfsp else [MAIN_MODULE, MAIN_EXPLOITER]) + ([SHARED_CRITIC_ID] if args.shared_critic else []),
 )
 
 # Learning rate decay

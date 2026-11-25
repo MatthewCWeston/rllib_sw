@@ -124,12 +124,14 @@ class SW_1v1_env(MultiAgentEnv):
         self.time += 1 * self.speed
         self.last_acts = actions # for rendering
         # Thrust is acc times anguv
+        eliminated = set()
         for i, ship, in enumerate(self.playerShips):
             ship.update(actions[i], self.missiles[i], self.speed, rng=self.rng)
             if (np.linalg.norm(ship.pos, 2) < PLAYER_SIZE):
                 self.terminated = True;
                 self.rewards[i] = -1
                 self.rewards[(i+1)%2] = 1
+                eliminated.add(i)
         # Update missiles
         for m in self.missiles:
             for i in reversed(range(len(m))):
@@ -140,6 +142,9 @@ class SW_1v1_env(MultiAgentEnv):
                     self.terminated = True
                     self.rewards[si] = -1
                     self.rewards[(si+1)%2] = 1
+                    eliminated.add(si)
+        if (len(eliminated)==2):
+            self.rewards[0]=self.rewards[1]=0 # Handle the edge case where both ships are killed
 
     def step(self, actions):
         self.rewards = {0:0,1:0}
