@@ -37,8 +37,14 @@ class ObsNorm(nn.Module):
             count, mean, var = (getattr(self, f"{key}_{s}") for s in ("count", "mean", "var"))
             active = (count > 0) | (var_new > 1e-12 * n_new) # Account for features that exist in early stages but only vary in later ones. 'active' checks that a feature changes within a batch.
             n, m, s = _merge((count.double(), mean.double(), var.double() * count.double()), (n_new * active, u_new, var_new))
+            m0, s0 = mean.clone(), torch.sqrt(var + self.eps) # Mean and sd before update
             count[active], mean[active], var[active] = n[active].float(), m[active].float(), (s[active] / n[active]).float()
-            emb = self.embs[key] # Zero weights until active; fold weights into bias
+            emb = self.embs[key]
+            # Rescale the features so that the current policy is not altered by the new scaling
+            # (Intuitively, we've already learned a policy for the previously-known distribution, and we don't want to break it)
+            emb.bias += emb.weight @ ((mean - m0) / s0).to(emb.weight.dtype)
+            emb.weight *= (torch.sqrt(var + self.eps) / s0).to(emb.weight.dtype)
+            # Zero weights until active; fold weights into bias
             emb.bias += emb.weight[:, ~active] @ u_new[~active].to(emb.weight.dtype)
             emb.weight[:, ~active] = 0
         self.pending = {}

@@ -18,7 +18,7 @@ class SharedCriticModule(TorchRLModule, ValueFunctionAPI):
         if self.model_config.get("vf_symmetry"):
             obs = batch[Columns.OBS]
             f = lambda o: self.vf(self.encoder.critic_encoder({Columns.OBS: o})[ENCODER_OUT]).squeeze(-1)
-            return (f({k: v for k, v in obs.items() if k != MIRROR_OBS}) - f(obs[MIRROR_OBS])) / 2 # Antisymmetric part of f
+            return (f({k: v for k, v in obs.items() if k != OPPONENT_OBS}) - f(obs[OPPONENT_OBS])) / 2 # Antisymmetric part of f
         if embeddings is None:
             embeddings = self.encoder.critic_encoder(batch)[ENCODER_OUT]
         return self.vf(embeddings).squeeze(-1)
